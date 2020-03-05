@@ -871,8 +871,31 @@ struct IVFPQScannerT: QueryTables {
     void scan_list_with_table (size_t ncode, const uint8_t *codes,
                                SearchResultType & res) const
     {
+#ifdef OPT_IVFPQ_RELAYOUT
+        size_t j;
+        size_t group_size = ivfpq.invlists->ivfpq_relayout_group_size;
+        if (group_size == 2) {
+            j = scan_list_with_table_relayout<2>(ncode, codes, res);
+        }
+        else if (group_size == 4) {
+            j = scan_list_with_table_relayout<4>(ncode, codes, res);
+        }
+        else if (group_size == 8) {
+            j = scan_list_with_table_relayout<8>(ncode, codes, res);
+        }
+        else if (group_size == 16) {
+            j = scan_list_with_table_relayout<16>(ncode, codes, res);
+        }
+        else if (group_size) {
+            j = scan_list_with_table_relayout(ncode, codes, res, group_size);
+        }
+        else {
+            j = 0;
+        }
+        for (; j < ncode; j++) {
+#else
         for (size_t j = 0; j < ncode; j++) {
-
+#endif
             float dis = dis0;
             const float *tab = sim_table;
 
@@ -885,6 +908,55 @@ struct IVFPQScannerT: QueryTables {
         }
     }
 
+#ifdef OPT_IVFPQ_RELAYOUT
+    template <class SearchResultType>
+    size_t scan_list_with_table_relayout (size_t ncode, const uint8_t*& codes,
+            SearchResultType& res, size_t group_size) const {
+        size_t j = 0;
+        float dis_array[group_size];
+        for (size_t g = ncode / group_size; g; g--) {
+            for (size_t i = 0; i < group_size; i++) {
+                dis_array[i] = dis0;
+            }
+            const float *tab = sim_table;
+            for (size_t m = 0; m < pq.M; m++) {
+                for (size_t i = 0; i < group_size; i++) {
+                    dis_array[i] += tab[*(codes++)];
+                }
+                tab += pq.ksub;
+            }
+            for (size_t i = 0; i < group_size; i++) {
+                res.add (j + i, dis_array[i]);
+            }
+            j += group_size;
+        }
+        return j;
+    }
+
+    template <size_t GroupSize, class SearchResultType>
+    size_t scan_list_with_table_relayout (size_t ncode, const uint8_t*& codes,
+            SearchResultType& res) const {
+        size_t j = 0;
+        float dis_array[GroupSize];
+        for (size_t g = ncode / GroupSize; g; g--) {
+            for (size_t i = 0; i < GroupSize; i++) {
+                dis_array[i] = dis0;
+            }
+            const float *tab = sim_table;
+            for (size_t m = 0; m < pq.M; m++) {
+                for (size_t i = 0; i < GroupSize; i++) {
+                    dis_array[i] += tab[*(codes++)];
+                }
+                tab += pq.ksub;
+            }
+            for (size_t i = 0; i < GroupSize; i++) {
+                res.add (j + i, dis_array[i]);
+            }
+            j += GroupSize;
+        }
+        return j;
+    }
+#endif
 
     /// tables are not precomputed, but pointers are provided to the
     /// relevant X_c|x_r tables

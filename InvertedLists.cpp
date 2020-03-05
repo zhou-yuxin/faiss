@@ -27,6 +27,9 @@ using ScopedCodes = InvertedLists::ScopedCodes;
 InvertedLists::InvertedLists (size_t nlist, size_t code_size):
     nlist (nlist), code_size (code_size)
 {
+#ifdef OPT_IVFPQ_RELAYOUT
+    ivfpq_relayout_group_size = 0;
+#endif
 }
 
 InvertedLists::~InvertedLists ()
@@ -135,6 +138,62 @@ size_t InvertedLists::compute_ntotal () const {
  * ArrayInvertedLists implementation
  ******************************************/
 
+#ifdef OPT_IVFPQ_RELAYOUT
+static inline size_t div_floor (size_t n, size_t alignment) {
+    return n / alignment;
+}
+
+static inline size_t div_ceil (size_t n, size_t alignment) {
+    return n ? (n - 1) / alignment + 1 : 0;
+}
+
+static inline size_t align_before (size_t n, size_t alignment) {
+    return div_floor (n, alignment) * alignment;
+}
+
+static void ivfpq_do_relayout (uint8_t* codes, size_t code_size,
+        size_t group_size, size_t group_count) {
+    size_t buf_size = code_size * group_size;
+    assert(buf_size);
+    uint8_t* tmp = new uint8_t[buf_size];
+    for (; group_count; group_count--) {
+        const uint8_t* src = codes;
+        for (size_t i = 0; i < group_size; i++) {
+            uint8_t* dst = tmp + i;
+            for (size_t j = 0; j < code_size; j++) {
+                *dst = *src;
+                src++;
+                dst += group_size;
+            }
+        }
+        memcpy(codes, tmp, buf_size);
+        codes += buf_size;
+    }
+    delete tmp;
+}
+
+static void ivfpq_undo_relayout (uint8_t* codes, size_t code_size,
+        size_t group_size, size_t group_count) {
+    size_t buf_size = code_size * group_size;
+    assert(buf_size);
+    uint8_t* tmp = new uint8_t[buf_size];
+    for (; group_count; group_count--) {
+        uint8_t* dst = tmp;
+        for (size_t i = 0; i < group_size; i++) {
+            const uint8_t* src = codes + i;
+            for (size_t j = 0; j < code_size; j++) {
+                *dst = *src;
+                dst++;
+                src += group_size;
+            }
+        }
+        memcpy(codes, tmp, buf_size);
+        codes += buf_size;
+    }
+    delete tmp;
+}
+#endif
+
 ArrayInvertedLists::ArrayInvertedLists (size_t nlist, size_t code_size):
     InvertedLists (nlist, code_size)
 {
@@ -153,6 +212,18 @@ size_t ArrayInvertedLists::add_entries (
     memcpy (&ids[list_no][o], ids_in, sizeof (ids_in[0]) * n_entry);
     codes [list_no].resize ((o + n_entry) * code_size);
     memcpy (&codes[list_no][o * code_size], code, code_size * n_entry);
+#ifdef OPT_IVFPQ_RELAYOUT
+    if (ivfpq_relayout_group_size) {
+        size_t start = align_before (o, ivfpq_relayout_group_size);
+        assert(start <= o);
+        size_t group_count = div_floor (o + n_entry - start,
+                ivfpq_relayout_group_size);
+        if (group_count) {
+            ivfpq_do_relayout (codes[list_no].data() + start * code_size,
+                    code_size, ivfpq_relayout_group_size, group_count);
+        }
+    }
+#endif
     return o;
 }
 
@@ -177,8 +248,29 @@ const InvertedLists::idx_t * ArrayInvertedLists::get_ids (size_t list_no) const
 
 void ArrayInvertedLists::resize (size_t list_no, size_t new_size)
 {
+#ifdef OPT_IVFPQ_RELAYOUT
+    size_t size = ids[list_no].size();
+    if (new_size < size) {
+        size_t start = align_before (new_size, ivfpq_relayout_group_size);
+        assert (start <= new_size);
+        if (start != new_size) {
+            ivfpq_undo_relayout (codes[list_no].data() + start * code_size,
+                    code_size, ivfpq_relayout_group_size, 1);
+        }
+    }
+#endif
     ids[list_no].resize (new_size);
     codes[list_no].resize (new_size * code_size);
+#ifdef OPT_IVFPQ_RELAYOUT
+    if (new_size > size) {
+        size_t start = align_before (size, ivfpq_relayout_group_size);
+        assert (start <= size);
+        if (start != size) {
+            ivfpq_do_relayout (codes[list_no].data() + start * code_size,
+                    code_size, ivfpq_relayout_group_size, 1);
+        }
+    }
+#endif
 }
 
 void ArrayInvertedLists::update_entries (
@@ -187,10 +279,62 @@ void ArrayInvertedLists::update_entries (
 {
     assert (list_no < nlist);
     assert (n_entry + offset <= ids[list_no].size());
+#ifdef OPT_IVFPQ_RELAYOUT
+    size_t start = align_before (offset, ivfpq_relayout_group_size);
+    assert (start <= offset);
+    size_t group_count = div_ceil (offset + n_entry - start,
+            ivfpq_relayout_group_size);
+    uint8_t* ptr;
+    if (group_count) {
+        ptr = codes[list_no].data() + start * code_size;
+        ivfpq_undo_relayout (ptr, code_size, ivfpq_relayout_group_size,
+                group_count);
+    }
+#endif
     memcpy (&ids[list_no][offset], ids_in, sizeof(ids_in[0]) * n_entry);
     memcpy (&codes[list_no][offset * code_size], codes_in, code_size * n_entry);
+#ifdef OPT_IVFPQ_RELAYOUT
+    if (group_count) {
+        ivfpq_do_relayout (ptr, code_size, ivfpq_relayout_group_size,
+                group_count);
+    }
+#endif
 }
 
+#ifdef OPT_IVFPQ_RELAYOUT
+void ArrayInvertedLists::ivfpq_relayout (size_t group_size) {
+    if (group_size == 1) {
+        group_size = 0;
+    }
+    if (!ivfpq_relayout_group_size && group_size) {
+        #pragma omp parallel for
+        for (size_t i = 0; i < nlist; i++) {
+            size_t group_count = div_floor (ids[i].size(), group_size);
+            if (group_count) {
+                ivfpq_do_relayout (codes[i].data(), code_size, group_size,
+                        group_count);
+            }
+        }
+    }
+    else if (ivfpq_relayout_group_size && !group_size) {
+        #pragma omp parallel for
+        for (size_t i = 0; i < nlist; i++) {
+            size_t group_count = div_floor (ids[i].size(),
+                    ivfpq_relayout_group_size);
+            if (group_count) {
+                ivfpq_undo_relayout (codes[i].data(), code_size,
+                        ivfpq_relayout_group_size, group_count);
+            }
+        }
+    }
+    else if (ivfpq_relayout_group_size != group_size) {
+        ivfpq_relayout (0);
+        ivfpq_relayout (group_size);
+        return;
+    }
+    ivfpq_relayout_group_size = group_size;
+}
+#endif
 
 ArrayInvertedLists::~ArrayInvertedLists ()
 {}

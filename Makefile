@@ -32,6 +32,10 @@ NVCCFLAGS += -I.
 
 all: libfaiss.a libfaiss.$(SHAREDEXT)
 
+ifeq ($(OPT_IVFPQ_RELAYOUT), 1)
+    CXXFLAGS += -DOPT_IVFPQ_RELAYOUT
+endif
+
 libfaiss.a: $(OBJ)
 	$(AR) r $@ $^
 

@@ -559,6 +559,15 @@ void ParameterSpace::set_index_parameter (
         }
     }
 
+#ifdef OPT_IVFPQ_RELAYOUT
+    if (name == "relayout_group") {
+        if (DC (IndexIVFPQ)) {
+            ix->invlists->ivfpq_relayout (size_t(val));
+            return;
+        }
+    }
+#endif
+
     FAISS_THROW_FMT ("ParameterSpace::set_index_parameter:"
                      "could not set parameter %s",
                      name.c_str());
