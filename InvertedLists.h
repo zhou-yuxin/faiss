@@ -105,6 +105,10 @@ struct InvertedLists {
     /// move all entries from oivf (empty on output)
     void merge_from (InvertedLists *oivf, size_t add_id);
 
+#ifdef OPT_IVFPQ_RELAYOUT
+    virtual void ivfpq_relayout (size_t group_size);
+#endif
+
     virtual ~InvertedLists ();
 
     /*************************
