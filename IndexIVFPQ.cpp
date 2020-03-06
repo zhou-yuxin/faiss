@@ -875,19 +875,19 @@ struct IVFPQScannerT: QueryTables {
         size_t j;
         size_t group_size = ivfpq.invlists->ivfpq_relayout_group_size;
         if (group_size == 2) {
-            j = scan_list_with_table_relayout<2>(ncode, codes, res);
+            j = scan_list_with_table<2> (ncode, codes, res);
         }
         else if (group_size == 4) {
-            j = scan_list_with_table_relayout<4>(ncode, codes, res);
+            j = scan_list_with_table<4> (ncode, codes, res);
         }
         else if (group_size == 8) {
-            j = scan_list_with_table_relayout<8>(ncode, codes, res);
+            j = scan_list_with_table<8> (ncode, codes, res);
         }
         else if (group_size == 16) {
-            j = scan_list_with_table_relayout<16>(ncode, codes, res);
+            j = scan_list_with_table<16> (ncode, codes, res);
         }
-        else if (group_size) {
-            j = scan_list_with_table_relayout(ncode, codes, res, group_size);
+        else if (group_size >= 2) {
+            j = scan_list_with_table (ncode, codes, res, group_size);
         }
         else {
             j = 0;
@@ -910,10 +910,10 @@ struct IVFPQScannerT: QueryTables {
 
 #ifdef OPT_IVFPQ_RELAYOUT
     template <class SearchResultType>
-    size_t scan_list_with_table_relayout (size_t ncode, const uint8_t*& codes,
+    size_t scan_list_with_table (size_t ncode, const uint8_t*& codes,
             SearchResultType& res, size_t group_size) const {
         size_t j = 0;
-        float dis_array[group_size];
+        float* dis_array = new float[group_size];
         for (size_t g = ncode / group_size; g; g--) {
             for (size_t i = 0; i < group_size; i++) {
                 dis_array[i] = dis0;
@@ -930,11 +930,12 @@ struct IVFPQScannerT: QueryTables {
             }
             j += group_size;
         }
+        delete dis_array;
         return j;
     }
 
     template <size_t GroupSize, class SearchResultType>
-    size_t scan_list_with_table_relayout (size_t ncode, const uint8_t*& codes,
+    size_t scan_list_with_table (size_t ncode, const uint8_t*& codes,
             SearchResultType& res) const {
         size_t j = 0;
         float dis_array[GroupSize];
