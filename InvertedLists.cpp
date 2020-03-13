@@ -16,8 +16,6 @@
 
 namespace faiss {
 
-using ScopedIds = InvertedLists::ScopedIds;
-using ScopedCodes = InvertedLists::ScopedCodes;
 
 
 /*****************************************
@@ -28,6 +26,7 @@ InvertedLists::InvertedLists (size_t nlist, size_t code_size):
     nlist (nlist), code_size (code_size)
 {
 #ifdef OPT_IVFPQ_RELAYOUT
+    pq_M = 0;
     ivfpq_relayout_group_size = 0;
 #endif
 }
@@ -100,10 +99,11 @@ void InvertedLists::merge_from (InvertedLists *oivf, size_t add_id) {
 }
 
 #ifdef OPT_IVFPQ_RELAYOUT
-void InvertedLists::ivfpq_relayout (size_t group_size) {
+void InvertedLists::ivfpq_relayout (size_t M, size_t group_size) {
     if (group_size >= 2) {
-        FAISS_THROW_MSG ("not implemented");
+        FAISS_THROW_MSG ("unsupported");
     }
+    pq_M = M;
     ivfpq_relayout_group_size = group_size;
 }
 #endif
@@ -160,46 +160,86 @@ static inline size_t align_before (size_t n, size_t alignment) {
     return div_floor (n, alignment) * alignment;
 }
 
-static void ivfpq_do_relayout (uint8_t* codes, size_t code_size,
-        size_t group_size, size_t group_count) {
-    size_t buf_size = code_size * group_size;
+template <typename T>
+static void ivfpq_do_relayout (T* codes, size_t M, size_t group_size,
+        size_t group_count) {
+    size_t buf_size = M * group_size;
     assert(buf_size);
-    uint8_t* tmp = new uint8_t[buf_size];
+    T* tmp = new T[buf_size];
     for (; group_count; group_count--) {
-        const uint8_t* src = codes;
+        const T* src = codes;
         for (size_t i = 0; i < group_size; i++) {
-            uint8_t* dst = tmp + i;
-            for (size_t j = 0; j < code_size; j++) {
+            T* dst = tmp + i;
+            for (size_t j = 0; j < M; j++) {
                 *dst = *src;
                 src++;
                 dst += group_size;
             }
         }
-        memcpy(codes, tmp, buf_size);
+        memcpy(codes, tmp, buf_size * sizeof(T));
         codes += buf_size;
     }
     delete tmp;
 }
 
-static void ivfpq_undo_relayout (uint8_t* codes, size_t code_size,
-        size_t group_size, size_t group_count) {
-    size_t buf_size = code_size * group_size;
+template <typename T>
+static void ivfpq_undo_relayout (T* codes, size_t M, size_t group_size,
+        size_t group_count) {
+    size_t buf_size = M * group_size;
     assert(buf_size);
-    uint8_t* tmp = new uint8_t[buf_size];
+    T* tmp = new T[buf_size];
     for (; group_count; group_count--) {
-        uint8_t* dst = tmp;
+        T* dst = tmp;
         for (size_t i = 0; i < group_size; i++) {
-            const uint8_t* src = codes + i;
-            for (size_t j = 0; j < code_size; j++) {
+            const T* src = codes + i;
+            for (size_t j = 0; j < M; j++) {
                 *dst = *src;
                 dst++;
                 src += group_size;
             }
         }
-        memcpy(codes, tmp, buf_size);
+        memcpy(codes, tmp, buf_size * sizeof(T));
         codes += buf_size;
     }
     delete tmp;
+}
+
+static inline void ivfpq_do_relayout (void* codes, size_t code_size,
+        size_t M, size_t group_size, size_t group_count) {
+    if (code_size == M) {
+        ivfpq_do_relayout ((uint8_t*)codes, M, group_size, group_count);
+    }
+    else if (code_size == M * 2) {
+        ivfpq_do_relayout ((uint16_t*)codes, M, group_size, group_count);
+    }
+    else if (code_size == M * 4) {
+        ivfpq_do_relayout ((uint32_t*)codes, M, group_size, group_count);
+    }
+    else if (code_size == M * 8) {
+        ivfpq_do_relayout ((uint64_t*)codes, M, group_size, group_count);
+    }
+    else {
+        FAISS_THROW_MSG ("unsupported");
+    }
+}
+
+static inline void ivfpq_undo_relayout (void* codes, size_t code_size,
+        size_t M, size_t group_size, size_t group_count) {
+    if (code_size == M) {
+        ivfpq_undo_relayout ((uint8_t*)codes, M, group_size, group_count);
+    }
+    else if (code_size == M * 2) {
+        ivfpq_undo_relayout ((uint16_t*)codes, M, group_size, group_count);
+    }
+    else if (code_size == M * 4) {
+        ivfpq_undo_relayout ((uint32_t*)codes, M, group_size, group_count);
+    }
+    else if (code_size == M * 8) {
+        ivfpq_undo_relayout ((uint64_t*)codes, M, group_size, group_count);
+    }
+    else {
+        FAISS_THROW_MSG ("unsupported");
+    }
 }
 #endif
 
@@ -229,7 +269,7 @@ size_t ArrayInvertedLists::add_entries (
                 ivfpq_relayout_group_size);
         if (group_count) {
             ivfpq_do_relayout (&codes[list_no][start * code_size],
-                    code_size, ivfpq_relayout_group_size, group_count);
+                    code_size, pq_M, ivfpq_relayout_group_size, group_count);
         }
     }
 #endif
@@ -267,7 +307,7 @@ void ArrayInvertedLists::resize (size_t list_no, size_t new_size)
             if (start != new_size &&
                     start + ivfpq_relayout_group_size <= old_size) {
                 ivfpq_undo_relayout (&codes[list_no][start * code_size],
-                        code_size, ivfpq_relayout_group_size, 1);
+                        code_size, pq_M, ivfpq_relayout_group_size, 1);
             }
         }
     }
@@ -282,7 +322,7 @@ void ArrayInvertedLists::resize (size_t list_no, size_t new_size)
             if (start != old_size &&
                     start + ivfpq_relayout_group_size <= new_size) {
                 ivfpq_do_relayout (&codes[list_no][start * code_size],
-                        code_size, ivfpq_relayout_group_size, 1);
+                        code_size, pq_M, ivfpq_relayout_group_size, 1);
             }
         }
     }
@@ -305,8 +345,8 @@ void ArrayInvertedLists::update_entries (
                 ivfpq_relayout_group_size);
         if (group_count) {
             ptr = &codes[list_no][start * code_size];
-            ivfpq_undo_relayout (ptr, code_size, ivfpq_relayout_group_size,
-                    group_count);
+            ivfpq_undo_relayout (ptr, code_size, pq_M,
+                    ivfpq_relayout_group_size, group_count);
         }
     }
 #endif
@@ -314,19 +354,20 @@ void ArrayInvertedLists::update_entries (
     memcpy (&codes[list_no][offset * code_size], codes_in, code_size * n_entry);
 #ifdef OPT_IVFPQ_RELAYOUT
     if (group_count) {
-        ivfpq_do_relayout (ptr, code_size, ivfpq_relayout_group_size,
-                group_count);
+        ivfpq_do_relayout (ptr, code_size, pq_M,
+                ivfpq_relayout_group_size, group_count);
     }
 #endif
 }
 
 #ifdef OPT_IVFPQ_RELAYOUT
-void ArrayInvertedLists::ivfpq_relayout (size_t group_size) {
+void ArrayInvertedLists::ivfpq_relayout (size_t M, size_t group_size) {
+    assert (pq_M == 0 || pq_M == M);
     if (ivfpq_relayout_group_size < 2 && group_size >= 2) {
         for (size_t i = 0; i < nlist; i++) {
             size_t group_count = div_floor (ids[i].size(), group_size);
             if (group_count) {
-                ivfpq_do_relayout (codes[i].data(), code_size, group_size,
+                ivfpq_do_relayout (codes[i].data(), code_size, M, group_size,
                         group_count);
             }
         }
@@ -336,17 +377,18 @@ void ArrayInvertedLists::ivfpq_relayout (size_t group_size) {
             size_t group_count = div_floor (ids[i].size(),
                     ivfpq_relayout_group_size);
             if (group_count) {
-                ivfpq_undo_relayout (codes[i].data(), code_size,
+                ivfpq_undo_relayout (codes[i].data(), code_size, M,
                         ivfpq_relayout_group_size, group_count);
             }
         }
     }
     else if (ivfpq_relayout_group_size >= 2 && group_size >= 2) {
         if (ivfpq_relayout_group_size != group_size) {
-            ivfpq_relayout (0);
-            ivfpq_relayout (group_size);
+            ivfpq_relayout (M, 0);
+            ivfpq_relayout (M, group_size);
         }
     }
+    pq_M = M;
     ivfpq_relayout_group_size = group_size;
 }
 #endif

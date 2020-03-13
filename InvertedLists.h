@@ -34,6 +34,7 @@ struct InvertedLists {
     size_t nlist;             ///< number of possible key values
     size_t code_size;         ///< code size per vector in bytes
 #ifdef OPT_IVFPQ_RELAYOUT
+    size_t pq_M;
     size_t ivfpq_relayout_group_size;
 #endif
 
@@ -102,7 +103,7 @@ struct InvertedLists {
     void merge_from (InvertedLists *oivf, size_t add_id);
 
 #ifdef OPT_IVFPQ_RELAYOUT
-    virtual void ivfpq_relayout (size_t group_size);
+    virtual void ivfpq_relayout (size_t M, size_t group_size);
 #endif
 
     virtual ~InvertedLists ();
@@ -206,7 +207,7 @@ struct ArrayInvertedLists: InvertedLists {
     void resize (size_t list_no, size_t new_size) override;
 
 #ifdef OPT_IVFPQ_RELAYOUT
-    void ivfpq_relayout (size_t group_size) override;
+    void ivfpq_relayout (size_t M, size_t group_size) override;
 #endif
 
     virtual ~ArrayInvertedLists ();

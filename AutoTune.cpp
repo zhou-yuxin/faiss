@@ -562,7 +562,7 @@ void ParameterSpace::set_index_parameter (
 #ifdef OPT_IVFPQ_RELAYOUT
     if (name == "relayout_group") {
         if (DC (IndexIVFPQ)) {
-            ix->invlists->ivfpq_relayout (size_t(val));
+            ix->invlists->ivfpq_relayout (ix->pq.M, size_t(val));
             return;
         }
     }
