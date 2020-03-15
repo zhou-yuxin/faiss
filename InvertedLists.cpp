@@ -298,7 +298,7 @@ const InvertedLists::idx_t * ArrayInvertedLists::get_ids (size_t list_no) const
 void ArrayInvertedLists::resize (size_t list_no, size_t new_size)
 {
 #ifdef OPT_IVFPQ_RELAYOUT
-    size_t old_size;
+    size_t old_size = 0;
     if (ivfpq_relayout_group_size >= 2) {
         old_size = ids[list_no].size();
         if (new_size < old_size) {
@@ -337,7 +337,7 @@ void ArrayInvertedLists::update_entries (
     assert (n_entry + offset <= ids[list_no].size());
 #ifdef OPT_IVFPQ_RELAYOUT
     size_t group_count = 0;
-    uint8_t* ptr;
+    uint8_t* ptr = nullptr;
     if (ivfpq_relayout_group_size >= 2) {
         size_t start = align_before (offset, ivfpq_relayout_group_size);
         assert (start <= offset);
