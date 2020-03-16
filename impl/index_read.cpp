@@ -559,6 +559,15 @@ Index *read_index (IOReader *f, int io_flags) {
         ivfl->code_size = ivfl->d * sizeof(float);
         read_InvertedLists (ivfl, f, io_flags);
         idx = ivfl;
+#ifdef OPT_IVFFLAT_BFP16
+    } else if (h == fourcc ("IwFH")) {
+        IndexIVFFlat * ivfl = new IndexIVFFlat ();
+        ivfl->use_bfp16 = true;
+        read_ivf_header (ivfl, f);
+        ivfl->code_size = ivfl->d * sizeof(bfp16_t);
+        read_InvertedLists (ivfl, f, io_flags);
+        idx = ivfl;
+#endif
     } else if (h == fourcc ("IxSQ")) {
         IndexScalarQuantizer * idxs = new IndexScalarQuantizer ();
         read_index_header (idxs, f);

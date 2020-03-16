@@ -24,9 +24,17 @@ namespace faiss {
  */
 struct IndexIVFFlat: IndexIVF {
 
+#ifndef OPT_IVFFLAT_BFP16
     IndexIVFFlat (
             Index * quantizer, size_t d, size_t nlist_,
             MetricType = METRIC_L2);
+#else
+    bool use_bfp16;
+
+    IndexIVFFlat (
+            Index * quantizer, size_t d, size_t nlist_,
+            MetricType = METRIC_L2, bool use_bfp16 = false);
+#endif
 
     /// same as add_with_ids, with precomputed coarse quantizer
     virtual void add_core (idx_t n, const float * x, const int64_t *xids,
@@ -51,7 +59,11 @@ struct IndexIVFFlat: IndexIVF {
     void sa_decode (idx_t n, const uint8_t *bytes,
                             float *x) const override;
 
+#ifndef OPT_IVFFLAT_BFP16
     IndexIVFFlat () {}
+#else
+    IndexIVFFlat () : use_bfp16(false) {}
+#endif
 };
 
 

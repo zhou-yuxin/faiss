@@ -684,4 +684,18 @@ bool check_openmp() {
     return true;
 }
 
+#ifdef USE_BFP16
+void convert_to_bfp16 (size_t d, const float* in, bfp16_t* out) {
+    for (size_t i = 0; i < d; i++) {
+        out[i] = in[i];
+    }
+}
+
+void convert_from_bfp16 (size_t d, const bfp16_t* in, float* out) {
+    for (size_t i = 0; i < d; i++) {
+        out[i] = (float)in[i];
+    }
+}
+#endif
+
 } // namespace faiss

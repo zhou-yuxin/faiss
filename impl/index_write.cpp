@@ -393,7 +393,11 @@ void write_index (const Index *idx, IOWriter *f) {
         write_InvertedLists (ivfl->invlists, f);
     } else if(const IndexIVFFlat * ivfl =
               dynamic_cast<const IndexIVFFlat *> (idx)) {
+#ifndef OPT_IVFFLAT_BFP16
         uint32_t h = fourcc ("IwFl");
+#else
+        uint32_t h = fourcc (ivfl->use_bfp16 ? "IwFH" : "IwFl");
+#endif
         WRITE1 (h);
         write_ivf_header (ivfl, f);
         write_InvertedLists (ivfl->invlists, f);

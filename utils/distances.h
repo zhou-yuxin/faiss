@@ -16,6 +16,9 @@
 
 #include <faiss/utils/Heap.h>
 
+#ifdef USE_BFP16
+#include <faiss/impl/bfp16.h>
+#endif
 
 namespace faiss {
 
@@ -47,6 +50,12 @@ float fvec_Linf (
         const float * y,
         size_t d);
 
+#ifdef USE_BFP16
+float fvec_L2sqr_bfp16 (const bfp16_t* x, const bfp16_t* y, size_t d);
+
+float fvec_inner_product_bfp16 (const bfp16_t* x, const bfp16_t* y,
+        size_t d);
+#endif
 
 /** Compute pairwise distances between sets of vectors
  *

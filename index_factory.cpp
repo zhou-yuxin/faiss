@@ -172,12 +172,22 @@ Index *index_factory (int d, const char *description_in, MetricType metric)
             add_idmap = true;
 
         // IVFs
+#ifndef OPT_IVFFLAT_BFP16
         } else if (!index && (stok == "Flat" || stok == "FlatDedup")) {
+#else
+        } else if (!index && (stok == "Flat" || stok == "FlatDedup" ||
+                stok == "Flat-BFP16")) {
+#endif
             if (coarse_quantizer) {
                 // if there was an IVF in front, then it is an IVFFlat
                 IndexIVF *index_ivf = stok == "Flat" ?
                     new IndexIVFFlat (
                           coarse_quantizer, d, ncentroids, metric) :
+#ifdef OPT_IVFFLAT_BFP16
+                    stok == "Flat-BFP16" ?
+                    new IndexIVFFlat (
+                          coarse_quantizer, d, ncentroids, metric, true) :
+#endif
                     new IndexIVFFlatDedup (
                           coarse_quantizer, d, ncentroids, metric);
                 index_ivf->quantizer_trains_alone =

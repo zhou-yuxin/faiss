@@ -20,6 +20,9 @@
 
 #include <faiss/utils/Heap.h>
 
+#ifdef USE_BFP16
+#include <faiss/impl/bfp16.h>
+#endif
 
 namespace faiss {
 
@@ -159,6 +162,12 @@ uint64_t hash_bytes (const uint8_t *bytes, int64_t n);
 
 /** Whether OpenMP annotations were respected. */
 bool check_openmp();
+
+#ifdef USE_BFP16
+void convert_to_bfp16 (size_t d, const float* in, bfp16_t* out);
+
+void convert_from_bfp16 (size_t d, const bfp16_t* in, float* out);
+#endif
 
 } // namspace faiss
 

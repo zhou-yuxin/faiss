@@ -33,7 +33,16 @@ NVCCFLAGS += -I.
 all: libfaiss.a libfaiss.$(SHAREDEXT)
 
 ifeq ($(OPT_IVFPQ_RELAYOUT), 1)
-    CXXFLAGS += -DOPT_IVFPQ_RELAYOUT
+    CPPFLAGS += -DOPT_IVFPQ_RELAYOUT
+endif
+
+ifeq ($(OPT_IVFFLAT_BFP16), 1)
+    USE_BFP16 = 1
+    CPPFLAGS += -DOPT_IVFFLAT_BFP16
+endif
+
+ifeq ($(USE_BFP16), 1)
+    CPPFLAGS += -DUSE_BFP16
 endif
 
 libfaiss.a: $(OBJ)
@@ -76,7 +85,7 @@ uninstall:
 
 depend: $(SRC) $(GPU_SRC)
 	for i in $^; do \
-		$(CXXCPP) $(CPPFLAGS) -DCUDA_VERSION=7050 -x c++ -MM $$i; \
+		$(CXXCPP) $(CPPFLAGS) -DCUDA_VERSION=8000 -x c++ -MM $$i; \
 	done > depend
 
 
