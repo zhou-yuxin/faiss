@@ -87,6 +87,9 @@ Index *index_factory (int d, const char *description_in, MetricType metric)
 
     int64_t ncentroids = -1;
     bool use_2layer = false;
+#ifdef USE_BFP16
+    bool use_bfp16 = false;
+#endif
 
     for (char *tok = strtok_r (description, " ,", &ptr);
          tok;
@@ -172,21 +175,16 @@ Index *index_factory (int d, const char *description_in, MetricType metric)
             add_idmap = true;
 
         // IVFs
-#ifndef OPT_IVFFLAT_BFP16
         } else if (!index && (stok == "Flat" || stok == "FlatDedup")) {
-#else
-        } else if (!index && (stok == "Flat" || stok == "FlatDedup" ||
-                stok == "Flat-BFP16")) {
-#endif
             if (coarse_quantizer) {
                 // if there was an IVF in front, then it is an IVFFlat
                 IndexIVF *index_ivf = stok == "Flat" ?
+#ifndef OPT_IVFFLAT_BFP16
                     new IndexIVFFlat (
                           coarse_quantizer, d, ncentroids, metric) :
-#ifdef OPT_IVFFLAT_BFP16
-                    stok == "Flat-BFP16" ?
+#else
                     new IndexIVFFlat (
-                          coarse_quantizer, d, ncentroids, metric, true) :
+                          coarse_quantizer, d, ncentroids, metric, use_bfp16) :
 #endif
                     new IndexIVFFlatDedup (
                           coarse_quantizer, d, ncentroids, metric);
@@ -240,8 +238,13 @@ Index *index_factory (int d, const char *description_in, MetricType metric)
             bool do_polysemous_training = stok.find("np") == std::string::npos;
             if (coarse_quantizer) {
                 if (!use_2layer) {
+#ifndef OPT_IVFPQ_BFP16
                     IndexIVFPQ *index_ivf = new IndexIVFPQ (
                         coarse_quantizer, d, ncentroids, M, nbit);
+#else
+                    IndexIVFPQ *index_ivf = new IndexIVFPQ (
+                        coarse_quantizer, d, ncentroids, M, nbit, metric, use_bfp16);
+#endif
                     index_ivf->quantizer_trains_alone =
                         get_trains_alone (coarse_quantizer);
                     index_ivf->metric_type = metric;
@@ -300,6 +303,10 @@ Index *index_factory (int d, const char *description_in, MetricType metric)
             index_1 = new IndexLattice(d, M, nbit, r2);
         } else if (stok == "RFlat") {
             make_IndexRefineFlat = true;
+#ifdef USE_BFP16
+        } else if (strcasecmp(stok.data(), "bfp16") == 0) {
+            use_bfp16 = true;
+#endif
         } else {
             FAISS_THROW_FMT( "could not parse token \"%s\" in %s\n",
                              tok, description_in);

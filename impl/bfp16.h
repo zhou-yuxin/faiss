@@ -28,13 +28,13 @@ public:
     inline void operator = (float x) {
         Formater f;
         f.fp32 = x;
-        if (f.u16s[0] & 0x8000) {
-            Formater g;
-            g.fp32 = x;
-            g.mantissa = 0;
-            g.fp32 /= 128.0f;
-            f.fp32 += g.fp32;
-        }
+        // if (f.u16s[0] & 0x8000) {
+        //     Formater g;
+        //     g.fp32 = x;
+        //     g.mantissa = 0;
+        //     g.fp32 /= 128.0f;
+        //     f.fp32 += g.fp32;
+        // }
         storage = f.u16s[1];
     }
 

@@ -41,8 +41,13 @@ ifeq ($(OPT_IVFFLAT_BFP16), 1)
     CPPFLAGS += -DOPT_IVFFLAT_BFP16
 endif
 
+ifeq ($(OPT_IVFPQ_BFP16), 1)
+    USE_BFP16 = 1
+    CPPFLAGS += -DOPT_IVFPQ_BFP16
+endif
+
 ifeq ($(USE_BFP16), 1)
-    CPPFLAGS += -DUSE_BFP16
+    CPPFLAGS += -DUSE_BFP16 -Wno-unused-variable
 endif
 
 libfaiss.a: $(OBJ)

@@ -50,13 +50,6 @@ float fvec_Linf (
         const float * y,
         size_t d);
 
-#ifdef USE_BFP16
-float fvec_L2sqr_bfp16 (const bfp16_t* x, const bfp16_t* y, size_t d);
-
-float fvec_inner_product_bfp16 (const bfp16_t* x, const bfp16_t* y,
-        size_t d);
-#endif
-
 /** Compute pairwise distances between sets of vectors
  *
  * @param d     dimension of the vectors
@@ -246,7 +239,16 @@ void range_search_inner_product (
         float radius,
         RangeSearchResult *result);
 
+#ifdef USE_BFP16
+float fvec_L2sqr (const bfp16_t* x, const bfp16_t* y, size_t d);
 
+float fvec_inner_product (const bfp16_t* x, const bfp16_t* y, size_t d);
 
+void fvec_L2sqr_ny (bfp16_t* dis, const float* x, const float* y, size_t d,
+        size_t ny);
+
+void fvec_inner_products_ny (bfp16_t* ip, const float* x, const float* y,
+        size_t d, size_t ny);
+#endif
 
 } // namespace faiss

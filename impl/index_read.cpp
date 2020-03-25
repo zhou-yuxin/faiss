@@ -420,6 +420,11 @@ static IndexIVFPQ *read_ivfpq (IOReader *f, uint32_t h, int io_flags)
         h == fourcc ("IvQR") || h == fourcc ("IwQR") ?
         new IndexIVFPQR () : nullptr;
     IndexIVFPQ * ivpq = ivfpqr ? ivfpqr : new IndexIVFPQ ();
+#ifdef OPT_IVFPQ_BFP16
+    if (h == fourcc ("IwPH") || h == fourcc ("IwHR")) {
+        ivpq->use_bfp16 = true;
+    }
+#endif
 
     std::vector<std::vector<Index::idx_t> > ids;
     read_ivf_header (ivpq, f, legacy ? &ids : nullptr);
@@ -621,6 +626,9 @@ Index *read_index (IOReader *f, int io_flags) {
         read_InvertedLists (ivsp, f, io_flags);
         idx = ivsp;
     } else if(h == fourcc ("IvPQ") || h == fourcc ("IvQR") ||
+#ifdef OPT_IVFPQ_BFP16
+              h == fourcc ("IwPH") || h == fourcc ("IwHR") ||
+#endif
               h == fourcc ("IwPQ") || h == fourcc ("IwQR")) {
 
         idx = read_ivfpq (f, h, io_flags);

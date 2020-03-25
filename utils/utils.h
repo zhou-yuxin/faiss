@@ -63,6 +63,16 @@ void fvec_madd (size_t n, const float *a,
 int fvec_madd_and_argmin (size_t n, const float *a,
                            float bf, const float *b, float *c);
 
+#ifdef USE_BFP16
+void fvec_madd (size_t n, const float *a,
+                float bf, const bfp16_t *b, bfp16_t *c);
+
+void fvec_madd (size_t n, const bfp16_t *a,
+                float bf, const bfp16_t *b, bfp16_t *c);
+
+int fvec_madd_and_argmin (size_t n, const bfp16_t *a,
+                          float bf, const bfp16_t *b, bfp16_t *c);
+#endif
 
 /* perform a reflection (not an efficient implementation, just for test ) */
 void reflection (const float * u, float * x, size_t n, size_t d, size_t nu);

@@ -647,65 +647,6 @@ void fvec_L2sqr_ny (float * dis, const float * x,
 
 #endif
 
-#ifdef USE_BFP16
-static float fvec_inner_product_bfp16_ref (const bfp16_t* x, const bfp16_t* y,
-        size_t d) {
-    float res = 0;
-    for (size_t i = 0; i < d; i++) {
-       res += (float)x[i] * (float)y[i];
-    }
-    return res;
-}
-
-float fvec_inner_product_bfp16 (const bfp16_t* x, const bfp16_t* y,
-        size_t d) {
-    return fvec_inner_product_bfp16_ref (x, y, d);
-}
-
-static float fvec_L2sqr_bfp16_ref (const bfp16_t* x, const bfp16_t* y,
-        size_t d) {
-    float res = 0;
-    for (size_t i = 0; i < d; i++) {
-        const float tmp = (float)x[i] - (float)y[i];
-        res += tmp * tmp;
-    }
-    return res;
-}
-
-static float fvec_L2sqr_bfp16_sse (const bfp16_t* x, const bfp16_t* y,
-        size_t d) {
-    __m128 msum = _mm_setzero_ps ();
-    __m128i mzero = _mm_setzero_si128 ();
-    while (d >= 4) {
-        __m128 mx = _mm_castsi128_ps (
-                _mm_unpacklo_epi16 (mzero,
-                        _mm_loadl_epi64 ((const __m128i*)x)));
-        __m128 my = _mm_castsi128_ps (
-                _mm_unpacklo_epi16 (mzero,
-                        _mm_loadl_epi64 ((const __m128i*)y)));
-        const __m128 diff = mx - my;
-        msum += diff * diff;
-        d -= 4;
-        x += 4;
-        y += 4;
-    }
-    msum = _mm_hadd_ps (msum, msum);
-    msum = _mm_hadd_ps (msum, msum);
-    float sum = _mm_cvtss_f32 (msum);
-    if (d > 0) {
-        sum += fvec_L2sqr_bfp16_ref (x, y, d);
-    }
-    return sum;
-}
-
-float fvec_L2sqr_bfp16 (const bfp16_t* x, const bfp16_t* y,
-        size_t d) {
-    return fvec_L2sqr_bfp16_sse (x, y, d);
-}
-#endif
-
-
-
 
 
 
@@ -859,5 +800,139 @@ int fvec_madd_and_argmin (size_t n, const float *a,
 
 
 
+
+#ifdef USE_BFP16
+static inline __m128 _mm_loadu (const bfp16_t* x) {
+    static const __m128i mzero = _mm_setzero_si128 ();
+    return _mm_castsi128_ps (_mm_unpacklo_epi16 (mzero,
+            _mm_loadl_epi64 ((const __m128i*)x)));
+}
+
+static inline __m128 _mm_loadu (const float* x) {
+    return _mm_loadu_ps (x);
+}
+
+static inline void _mm_storeu (const __m128 m, bfp16_t* x) {
+    static const __m128i mask = _mm_set_epi8 (0, 0, 0, 0, 0, 0, 0, 0,
+            15, 14, 11, 10, 7, 6, 3, 2);
+    _mm_storel_epi64 ((__m128i*)x,
+            _mm_shuffle_epi8(_mm_castps_si128 (m), mask));
+}
+
+template <typename TA, typename TB>
+static float fvec_inner_product_ref (const TA* x, const TB* y, size_t d) {
+    float res = 0;
+    for (size_t i = 0; i < d; i++) {
+       res += (float)x[i] * (float)y[i];
+    }
+    return res;
+}
+
+template <typename TA, typename TB>
+static float fvec_inner_product_sse (const TA* x, const TB* y, size_t d) {
+    __m128 msum = _mm_setzero_ps();
+    while (d >= 4) {
+        msum += _mm_loadu (x) * _mm_loadu (y);
+        d -= 4;
+        x += 4;
+        y += 4;
+    }
+    msum = _mm_hadd_ps (msum, msum);
+    msum = _mm_hadd_ps (msum, msum);
+    float sum = _mm_cvtss_f32 (msum);
+    if (d > 0) {
+        sum += fvec_inner_product_ref (x, y, d);
+    }
+    return sum;
+}
+
+float fvec_inner_product (const bfp16_t* x, const bfp16_t* y, size_t d) {
+    return fvec_inner_product_sse (x, y, d);
+}
+
+template <typename TA, typename TB>
+static float fvec_L2sqr_ref (const TA* x, const TB* y, size_t d) {
+    float res = 0;
+    for (size_t i = 0; i < d; i++) {
+        float diff = (float)x[i] - (float)y[i];
+        res += diff * diff;
+    }
+    return res;
+}
+
+template <typename TA, typename TB>
+static float fvec_L2sqr_sse (const TA* x, const TB* y, size_t d) {
+    __m128 msum = _mm_setzero_ps ();
+    while (d >= 4) {
+        __m128 diff = _mm_loadu (x) - _mm_loadu (y);
+        msum += diff * diff;
+        d -= 4;
+        x += 4;
+        y += 4;
+    }
+    msum = _mm_hadd_ps (msum, msum);
+    msum = _mm_hadd_ps (msum, msum);
+    float sum = _mm_cvtss_f32 (msum);
+    if (d > 0) {
+        sum += fvec_L2sqr_ref (x, y, d);
+    }
+    return sum;
+}
+
+float fvec_L2sqr (const bfp16_t* x, const bfp16_t* y, size_t d) {
+    return fvec_L2sqr_sse (x, y, d);
+}
+
+void fvec_L2sqr_ny (bfp16_t* dis, const float* x, const float* y, size_t d,
+        size_t ny) {
+    for (size_t i = 0; i < ny; i++) {
+        dis[i] = fvec_L2sqr (x, y, d);
+        y += d;
+    }
+}
+
+void fvec_inner_products_ny (bfp16_t* ip, const float* x, const float* y,
+        size_t d, size_t ny) {
+    for (size_t i = 0; i < ny; i++) {
+        ip[i] = fvec_inner_product (x, y, d);
+        y += d;
+    }
+}
+
+template <typename TA, typename TB, typename TC>
+static void fvec_madd_ref (size_t n, const TA* a, float bf,
+        const TB* b, TC* c) {
+    for (size_t i = 0; i < n; i++) {
+        c[i] = a[i] + bf * b[i];
+    }
+}
+
+template <typename TA, typename TB, typename TC>
+static void fvec_madd_sse (size_t n, const TA* a, float bf,
+        const TB* b, TC* c) {
+    __m128 mbf = _mm_set_ps1 (bf);
+    while (n >= 4) {
+        __m128 mc = _mm_loadu (a) + mbf * _mm_loadu (b);
+        _mm_storeu (mc, c);
+        n -= 4;
+        a += 4;
+        b += 4;
+        c += 4;
+    }
+    if (n > 0) {
+        fvec_madd_ref (n, a, bf, b, c);
+    }
+}
+
+void fvec_madd (size_t n, const float* a, float bf, const bfp16_t* b,
+        bfp16_t* c) {
+    fvec_madd_sse (n, a, bf, b, c);
+}
+
+void fvec_madd (size_t n, const bfp16_t *a, float bf, const bfp16_t *b,
+        bfp16_t *c) {
+    fvec_madd_sse (n, a, bf, b, c);
+}
+#endif
 
 } // namespace faiss

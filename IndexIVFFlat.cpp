@@ -200,8 +200,8 @@ struct IVFFlatScanner: InvertedListScanner {
         if (use_bfp16) {
             const bfp16_t* yj = (const bfp16_t*)code;
             float dis = metric == METRIC_INNER_PRODUCT ?
-                fvec_inner_product_bfp16 (xi_bfp16.data(), yj, d) :
-                fvec_L2sqr_bfp16 (xi_bfp16.data(), yj, d);
+                fvec_inner_product (xi_bfp16.data(), yj, d) :
+                fvec_L2sqr (xi_bfp16.data(), yj, d);
             return dis;
         }
 #endif
