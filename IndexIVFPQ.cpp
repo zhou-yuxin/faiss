@@ -579,7 +579,6 @@ struct QueryTables {
     int polysemous_ht;
 
     // pre-allocated data buffers
-#ifndef OPT_IVFPQ_BFP16
     float * sim_table, * sim_table_2;
     float * residual_vec, *decoded_vec;
 
@@ -587,14 +586,9 @@ struct QueryTables {
     std::vector<float> mem;
 
     // for table pointers
+#ifndef OPT_IVFPQ_BFP16
     std::vector<const float *> sim_table_ptrs;
 #else
-    VT *sim_table, *sim_table_2;
-    std::vector<VT> tab_mem;
-
-    float *residual_vec, *decoded_vec;
-    std::vector<float> vec_mem;
-
     std::vector<const VT*> sim_table_ptrs;
 #endif
 
@@ -607,20 +601,11 @@ struct QueryTables {
         by_residual (ivfpq.by_residual),
         use_precomputed_table (ivfpq.use_precomputed_table)
     {
-#ifndef OPT_IVFPQ_BFP16
         mem.resize (pq.ksub * pq.M * 2 + d * 2);
         sim_table = mem.data ();
         sim_table_2 = sim_table + pq.ksub * pq.M;
         residual_vec = sim_table_2 + pq.ksub * pq.M;
         decoded_vec = residual_vec + d;
-#else
-        tab_mem.resize (pq.ksub * pq.M * 2);
-        sim_table = tab_mem.data ();
-        sim_table_2 = sim_table + pq.ksub * pq.M;
-        vec_mem.resize (d * 2);
-        residual_vec = vec_mem.data();
-        decoded_vec = residual_vec + d;
-#endif
 
         // for polysemous
         polysemous_ht = ivfpq.polysemous_ht;
@@ -756,14 +741,12 @@ struct QueryTables {
             if (ivfpq.use_bfp16) {
                 fvec_madd (pq.M * pq.ksub,
                         &ivfpq.precomputed_table_bfp16 [key * pq.ksub * pq.M],
-                        -2.0f, reinterpret_cast<bfp16_t*> (sim_table_2),
-                        reinterpret_cast<bfp16_t*> (sim_table));
+                        -2.0f, sim_table_2, sim_table);
             }
             else {
                 fvec_madd (pq.M * pq.ksub,
                         &ivfpq.precomputed_table [key * pq.ksub * pq.M],
-                        -2.0, reinterpret_cast<float*> (sim_table_2),
-                        reinterpret_cast<float*> (sim_table));
+                        -2.0, sim_table_2, sim_table);
             }
 #endif
 
@@ -782,13 +765,8 @@ struct QueryTables {
             const ProductQuantizer &cpq = miq->pq;
             int Mf = pq.M / cpq.M;
 
-#ifndef OPT_IVFPQ_BFP16
             const float *qtab = sim_table_2; // query-specific table
             float *ltab = sim_table; // (output) list-specific table
-#else
-            const VT* qtab = sim_table_2; // query-specific table
-            VT* ltab = sim_table; // (output) list-specific table
-#endif
 
             long k = key;
             for (int cm = 0; cm < cpq.M; cm++) {
@@ -1041,11 +1019,7 @@ struct IVFPQScannerT: QueryTables<VT> {
             PQDecoder decoder(codes, this->pq.nbits);
             codes += this->pq.code_size;
             float dis = dis0;
-#ifndef OPT_IVFPQ_BFP16
-            const float *tab = sim_table;
-#else
-            const VT *tab = this->sim_table;
-#endif
+            const float *tab = this->sim_table;
 
             for (size_t m = 0; m < this->pq.M; m++) {
                 dis += tab[decoder.decode()];
@@ -1122,11 +1096,7 @@ struct IVFPQScannerT: QueryTables<VT> {
             codes += this->pq.code_size;
 
             float dis = dis0;
-#ifndef OPT_IVFPQ_BFP16
-            const float *tab = sim_table_2;
-#else
-            const VT *tab = this->sim_table_2;
-#endif
+            const float *tab = this->sim_table_2;
 
             for (size_t m = 0; m < this->pq.M; m++) {
                 int ci = decoder.decode();
@@ -1201,11 +1171,7 @@ struct IVFPQScannerT: QueryTables<VT> {
                 PQDecoder decoder(codes, this->pq.nbits);
 
                 float dis = dis0;
-#ifndef OPT_IVFPQ_BFP16
-                const float *tab = sim_table;
-#else
-                const VT *tab = this->sim_table;
-#endif
+                const float *tab = this->sim_table;
 
                 for (size_t m = 0; m < this->pq.M; m++) {
                     dis += tab[decoder.decode()];
@@ -1301,11 +1267,7 @@ struct IVFPQScanner:
     float distance_to_code (const uint8_t *code) const override {
         assert(precompute_mode == 2);
         float dis = this->dis0;
-#ifndef OPT_IVFPQ_BFP16
         const float *tab = this->sim_table;
-#else
-        const VT *tab = this->sim_table;
-#endif
         PQDecoder decoder(code, this->pq.nbits);
 
         for (size_t m = 0; m < this->pq.M; m++) {

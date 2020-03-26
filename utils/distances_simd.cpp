@@ -819,6 +819,10 @@ static inline void _mm_storeu (const __m128 m, bfp16_t* x) {
             _mm_shuffle_epi8(_mm_castps_si128 (m), mask));
 }
 
+static inline void _mm_storeu (const __m128 m, float* x) {
+    _mm_store_ps (x, m);
+}
+
 template <typename TA, typename TB>
 static float fvec_inner_product_ref (const TA* x, const TB* y, size_t d) {
     float res = 0;
@@ -929,9 +933,74 @@ void fvec_madd (size_t n, const float* a, float bf, const bfp16_t* b,
     fvec_madd_sse (n, a, bf, b, c);
 }
 
-void fvec_madd (size_t n, const bfp16_t *a, float bf, const bfp16_t *b,
-        bfp16_t *c) {
+void fvec_madd (size_t n, const bfp16_t *a, float bf, const float *b,
+        float *c) {
     fvec_madd_sse (n, a, bf, b, c);
+}
+
+template <typename TA, typename TB, typename TC>
+static int fvec_madd_and_argmin_ref (size_t n, const TA* a, float bf,
+        const TB* b, TC* c) {
+    TC vmin = 1e20;
+    int imin = -1;
+    for (size_t i = 0; i < n; i++) {
+        c[i] = a[i] + bf * b[i];
+        if (c[i] < vmin) {
+            vmin = c[i];
+            imin = i;
+        }
+    }
+    return imin;
+}
+
+template <typename TA, typename TB, typename TC>
+static int fvec_madd_and_argmin_sse (size_t n, const TA* a, float bf,
+        const TB* b, TC* c) {
+    const TC* const oc = c;
+    __m128 mbf = _mm_set_ps1 (bf);
+    __m128 mvmin = _mm_set_ps1 (1e20);
+    __m128i mimin = _mm_set1_epi32 (-1);
+    __m128i midx = _mm_set_epi32 (3, 2, 1, 0);
+    __m128i minc = _mm_set1_epi32 (4);
+    while (n >= 4) {
+        __m128 mc = _mm_loadu (a) + mbf * _mm_loadu (b);
+        _mm_storeu (mc, c);
+        __m128i mask = (__m128i)_mm_cmpgt_ps (mvmin, mc);
+        mimin = _mm_or_si128 (_mm_and_si128 (mask, midx),
+                _mm_andnot_si128 (mask, mimin));
+        mvmin = _mm_min_ps (mvmin, mc);
+        midx = _mm_add_epi32 (midx, minc);
+        n -= 4;
+        a += 4;
+        b += 4;
+        c += 4;
+    }
+    midx = _mm_shuffle_epi32 (mimin, 3 << 2 | 2);
+    __m128 mc = _mm_shuffle_ps (mvmin, mvmin, 3 << 2 | 2);
+    __m128i mask = (__m128i)_mm_cmpgt_ps (mvmin, mc);
+    mimin = _mm_or_si128 (_mm_and_si128 (mask, midx),
+            _mm_andnot_si128 (mask, mimin));
+    mvmin = _mm_min_ps (mvmin, mc);
+    midx = _mm_shuffle_epi32 (mimin, 1);
+    mc = _mm_shuffle_ps (mvmin, mvmin, 1);
+    mask = (__m128i)_mm_cmpgt_ps (mvmin, mc);
+    mimin = _mm_or_si128 (_mm_and_si128 (mask, midx),
+            _mm_andnot_si128 (mask, mimin));
+    int imin = _mm_cvtsi128_si32 (mimin);
+    if (n > 0) {
+        TC vmin = oc [imin];
+        int new_imin = fvec_madd_and_argmin_ref (n, a, bf, b, c);
+        TC new_vmin = c [new_imin];
+        if (new_vmin < vmin) {
+            imin = new_imin + (c - oc);
+        }
+    }
+    return imin;
+}
+
+int fvec_madd_and_argmin (size_t n, const bfp16_t *a, float bf,
+        const float* b, float* c) {
+    return fvec_madd_and_argmin_sse (n, a, bf, b, c);
 }
 #endif
 

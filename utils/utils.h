@@ -68,10 +68,10 @@ void fvec_madd (size_t n, const float *a,
                 float bf, const bfp16_t *b, bfp16_t *c);
 
 void fvec_madd (size_t n, const bfp16_t *a,
-                float bf, const bfp16_t *b, bfp16_t *c);
+                float bf, const float *b, float *c);
 
 int fvec_madd_and_argmin (size_t n, const bfp16_t *a,
-                          float bf, const bfp16_t *b, bfp16_t *c);
+                          float bf, const float *b, float *c);
 #endif
 
 /* perform a reflection (not an efficient implementation, just for test ) */
