@@ -993,7 +993,7 @@ struct IVFPQScannerT: QueryTables<VT> {
     {
 #ifdef OPT_IVFPQ_RELAYOUT
         size_t j;
-        size_t group_size = ivfpq.invlists->ivfpq_relayout_group_size;
+        size_t group_size = this->ivfpq.invlists->ivfpq_relayout_group_size;
         if (group_size == 2) {
             j = scan_list_with_table<2> (ncode, codes, res);
         }
@@ -1037,17 +1037,17 @@ struct IVFPQScannerT: QueryTables<VT> {
         size_t j = 0;
         float* dis_array = new float[group_size];
         for (size_t g = ncode / group_size; g; g--) {
-            PQDecoder decoder(codes, pq.nbits);
-            codes += group_size * pq.code_size;
+            PQDecoder decoder(codes, this->pq.nbits);
+            codes += group_size * this->pq.code_size;
             for (size_t i = 0; i < group_size; i++) {
-                dis_array[i] = dis0;
+                dis_array[i] = this->dis0;
             }
-            const float *tab = sim_table;
-            for (size_t m = 0; m < pq.M; m++) {
+            const float *tab = this->sim_table;
+            for (size_t m = 0; m < this->pq.M; m++) {
                 for (size_t i = 0; i < group_size; i++) {
                     dis_array[i] += tab[decoder.decode()];
                 }
-                tab += pq.ksub;
+                tab += this->pq.ksub;
             }
             for (size_t i = 0; i < group_size; i++) {
                 res.add (j + i, dis_array[i]);
@@ -1064,17 +1064,17 @@ struct IVFPQScannerT: QueryTables<VT> {
         size_t j = 0;
         float dis_array[GroupSize];
         for (size_t g = ncode / GroupSize; g; g--) {
-            PQDecoder decoder(codes, pq.nbits);
-            codes += GroupSize * pq.code_size;
+            PQDecoder decoder(codes, this->pq.nbits);
+            codes += GroupSize * this->pq.code_size;
             for (size_t i = 0; i < GroupSize; i++) {
-                dis_array[i] = dis0;
+                dis_array[i] = this->dis0;
             }
-            const float *tab = sim_table;
-            for (size_t m = 0; m < pq.M; m++) {
+            const float *tab = this->sim_table;
+            for (size_t m = 0; m < this->pq.M; m++) {
                 for (size_t i = 0; i < GroupSize; i++) {
                     dis_array[i] += tab[decoder.decode()];
                 }
-                tab += pq.ksub;
+                tab += this->pq.ksub;
             }
             for (size_t i = 0; i < GroupSize; i++) {
                 res.add (j + i, dis_array[i]);
@@ -1270,6 +1270,12 @@ struct IVFPQScanner:
         const float *tab = this->sim_table;
         PQDecoder decoder(code, this->pq.nbits);
 
+#ifdef OPT_IVFPQ_RELAYOUT
+        size_t group_size = this->ivfpq.invlists->ivfpq_relayout_group_size;
+        if (group_size >= 2) {
+            FAISS_THROW_MSG ("not implemented!");
+        }
+#endif
         for (size_t m = 0; m < this->pq.M; m++) {
             dis += tab[decoder.decode()];
             tab += this->pq.ksub;
