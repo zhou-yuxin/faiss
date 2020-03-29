@@ -6,7 +6,6 @@
  */
 
 
-#include <faiss/gpu/impl/PQScanMultiPassNoPrecomputed.cuh>
 #include <faiss/gpu/GpuResources.h>
 #include <faiss/gpu/impl/PQCodeDistances.cuh>
 #include <faiss/gpu/impl/PQCodeLoad.cuh>
@@ -24,7 +23,7 @@
 namespace faiss { namespace gpu {
 
 // This must be kept in sync with PQCodeDistances.cu
-bool isSupportedNoPrecomputedSubDimSize(int dims) {
+inline bool isSupportedNoPrecomputedSubDimSize(int dims) {
   switch (dims) {
     case 1:
     case 2:
@@ -218,9 +217,10 @@ pqScanNoPrecomputedMultiPass(Tensor<float, 2, true> queries,
   }
 }
 
+template <typename CentroidT>
 void
 runMultiPassTile(Tensor<float, 2, true>& queries,
-                 Tensor<float, 2, true>& centroids,
+                 Tensor<CentroidT, 2, true>& centroids,
                  Tensor<float, 3, true>& pqCentroidsInnermostCode,
                  NoTypeTensor<4, true>& codeDistances,
                  Tensor<int, 2, true>& topQueryToCentroid,
@@ -391,26 +391,28 @@ runMultiPassTile(Tensor<float, 2, true>& queries,
                       stream);
 }
 
-void runPQScanMultiPassNoPrecomputed(Tensor<float, 2, true>& queries,
-                                     Tensor<float, 2, true>& centroids,
-                                     Tensor<float, 3, true>& pqCentroidsInnermostCode,
-                                     Tensor<int, 2, true>& topQueryToCentroid,
-                                     bool useFloat16Lookup,
-                                     int bytesPerCode,
-                                     int numSubQuantizers,
-                                     int numSubQuantizerCodes,
-                                     thrust::device_vector<void*>& listCodes,
-                                     thrust::device_vector<void*>& listIndices,
-                                     IndicesOptions indicesOptions,
-                                     thrust::device_vector<int>& listLengths,
-                                     int maxListLength,
-                                     int k,
-                                     faiss::MetricType metric,
-                                     // output
-                                     Tensor<float, 2, true>& outDistances,
-                                     // output
-                                     Tensor<long, 2, true>& outIndices,
-                                     GpuResources* res) {
+template <typename CentroidT>
+void
+runPQScanMultiPassNoPrecomputed(Tensor<float, 2, true>& queries,
+                                Tensor<CentroidT, 2, true>& centroids,
+                                Tensor<float, 3, true>& pqCentroidsInnermostCode,
+                                Tensor<int, 2, true>& topQueryToCentroid,
+                                bool useFloat16Lookup,
+                                int bytesPerCode,
+                                int numSubQuantizers,
+                                int numSubQuantizerCodes,
+                                thrust::device_vector<void*>& listCodes,
+                                thrust::device_vector<void*>& listIndices,
+                                IndicesOptions indicesOptions,
+                                thrust::device_vector<int>& listLengths,
+                                int maxListLength,
+                                int k,
+                                faiss::MetricType metric,
+                                // output
+                                Tensor<float, 2, true>& outDistances,
+                                // output
+                                Tensor<long, 2, true>& outIndices,
+                                GpuResources* res) {
   constexpr int kMinQueryTileSize = 8;
   constexpr int kMaxQueryTileSize = 128;
   constexpr int kThrustMemSize = 16384;

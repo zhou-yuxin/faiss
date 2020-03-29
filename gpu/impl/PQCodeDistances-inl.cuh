@@ -6,8 +6,6 @@
  */
 
 
-#include <faiss/gpu/impl/PQCodeDistances.cuh>
-
 #include <faiss/gpu/impl/BroadcastSum.cuh>
 #include <faiss/gpu/impl/Distance.cuh>
 #include <faiss/gpu/impl/L2Norm.cuh>
@@ -22,28 +20,17 @@
 
 namespace faiss { namespace gpu {
 
-template <typename T>
-struct Converter {
-};
-
-template <>
-struct Converter<half> {
-  inline static __device__ half to(float v) { return __float2half(v); }
-};
-
-template <>
-struct Converter<float> {
-  inline static __device__ float to(float v) { return v; }
-};
-
 // Kernel responsible for calculating distance from residual vector to
 // each product quantizer code centroid
-template <typename OutCodeT, int DimsPerSubQuantizer, bool L2Distance>
+template <typename OutCodeT,
+          typename CentroidT,
+          int DimsPerSubQuantizer,
+          bool L2Distance>
 __global__ void
 __launch_bounds__(288, 4)
 pqCodeDistances(Tensor<float, 2, true> queries,
                 int queriesPerBlock,
-                Tensor<float, 2, true> coarseCentroids,
+                Tensor<CentroidT, 2, true> coarseCentroids,
                 Tensor<float, 3, true> pqCentroids,
                 Tensor<int, 2, true> topQueryToCentroid,
                 // (query id)(coarse)(subquantizer)(code) -> dist
@@ -125,9 +112,11 @@ pqCodeDistances(Tensor<float, 2, true> queries,
           coarseCentroids[coarseId][subQuantizer * dimsPerSubQuantizer].data();
 
         if (L2Distance) {
-          smemResidual1[i] = smemQuery[i] - coarseCentroidSubQuantizer[i];
+          smemResidual1[i] = smemQuery[i] -
+            ConvertTo<float>::to(coarseCentroidSubQuantizer[i]);
         } else {
-          smemResidual1[i] = coarseCentroidSubQuantizer[i];
+          smemResidual1[i] =
+            ConvertTo<float>::to(coarseCentroidSubQuantizer[i]);
         }
       }
     }
@@ -154,9 +143,11 @@ pqCodeDistances(Tensor<float, 2, true> queries,
               [subQuantizer * dimsPerSubQuantizer].data();
 
             if (L2Distance) {
-              smemResidual2[i] = smemQuery[i] - coarseCentroidSubQuantizer[i];
+              smemResidual2[i] = smemQuery[i] -
+                ConvertTo<float>::to(coarseCentroidSubQuantizer[i]);
             } else {
-              smemResidual2[i] = coarseCentroidSubQuantizer[i];
+              smemResidual2[i] =
+                ConvertTo<float>::to(coarseCentroidSubQuantizer[i]);
             }
           }
         }
@@ -266,7 +257,7 @@ pqCodeDistances(Tensor<float, 2, true> queries,
 
         // We have the distance for our code; write it out
         outCodeDistances[queryId][coarse][subQuantizer][code] =
-          Converter<OutCodeT>::to(dist);
+          ConvertTo<OutCodeT>::to(dist);
       } // !isLoadingThread
 
       // Swap residual buffers
@@ -277,9 +268,10 @@ pqCodeDistances(Tensor<float, 2, true> queries,
   }
 }
 
+template <typename CentroidT>
 __global__ void
 residualVector(Tensor<float, 2, true> queries,
-               Tensor<float, 2, true> coarseCentroids,
+               Tensor<CentroidT, 2, true> coarseCentroids,
                Tensor<int, 2, true> topQueryToCentroid,
                int numSubDim,
                // output is transposed:
@@ -295,17 +287,17 @@ residualVector(Tensor<float, 2, true> queries,
 
   for (int dim = threadIdx.x; dim < queries.getSize(1); dim += blockDim.x) {
     float q = queries[queryId][dim];
-    float c = coarseCentroids[realCentroidId][dim];
+    float c = ConvertTo<float>::to(coarseCentroids[realCentroidId][dim]);
 
-    residual[dim / numSubDim][queryId][centroidId][dim % numSubDim] =
-      q - c;
+    residual[dim / numSubDim][queryId][centroidId][dim % numSubDim] = q - c;
   }
 }
 
+template <typename CentroidT>
 void
 runResidualVector(Tensor<float, 3, true>& pqCentroids,
                   Tensor<float, 2, true>& queries,
-                  Tensor<float, 2, true>& coarseCentroids,
+                  Tensor<CentroidT, 2, true>& coarseCentroids,
                   Tensor<int, 2, true>& topQueryToCentroid,
                   Tensor<float, 4, true>& residual,
                   cudaStream_t stream) {
@@ -320,10 +312,11 @@ runResidualVector(Tensor<float, 3, true>& pqCentroids,
   CUDA_TEST_ERROR();
 }
 
+template <typename CentroidT>
 void
 runPQCodeDistancesMM(Tensor<float, 3, true>& pqCentroids,
                      Tensor<float, 2, true>& queries,
-                     Tensor<float, 2, true>& coarseCentroids,
+                     Tensor<CentroidT, 2, true>& coarseCentroids,
                      Tensor<int, 2, true>& topQueryToCentroid,
                      NoTypeTensor<4, true>& outCodeDistances,
                      bool useFloat16Lookup,
@@ -454,10 +447,11 @@ runPQCodeDistancesMM(Tensor<float, 3, true>& pqCentroids,
   }
 }
 
+template <typename CentroidT>
 void
 runPQCodeDistances(Tensor<float, 3, true>& pqCentroids,
                    Tensor<float, 2, true>& queries,
-                   Tensor<float, 2, true>& coarseCentroids,
+                   Tensor<CentroidT, 2, true>& coarseCentroids,
                    Tensor<int, 2, true>& topQueryToCentroid,
                    NoTypeTensor<4, true>& outCodeDistances,
                    bool l2Distance,
@@ -488,14 +482,14 @@ runPQCodeDistances(Tensor<float, 3, true>& pqCentroids,
     if (useFloat16Lookup) {                                             \
       auto outCodeDistancesT = outCodeDistances.toTensor<half>();       \
                                                                         \
-      pqCodeDistances<half, DIMS, L2><<<grid, block, smem, stream>>>(   \
+      pqCodeDistances<half, CentroidT, DIMS, L2><<<grid, block, smem, stream>>>( \
         queries, kQueriesPerBlock,                                      \
         coarseCentroids, pqCentroids,                                   \
         topQueryToCentroid, outCodeDistancesT);                         \
     } else {                                                            \
       auto outCodeDistancesT = outCodeDistances.toTensor<float>();      \
                                                                         \
-      pqCodeDistances<float, DIMS, L2><<<grid, block, smem, stream>>>(  \
+      pqCodeDistances<float, CentroidT, DIMS, L2><<<grid, block, smem, stream>>>( \
         queries, kQueriesPerBlock,                                      \
         coarseCentroids, pqCentroids,                                   \
         topQueryToCentroid, outCodeDistancesT);                         \
