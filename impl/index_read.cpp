@@ -453,6 +453,12 @@ static IndexIVFPQ *read_ivfpq (IOReader *f, uint32_t h, int io_flags)
             READ1 (ivfpqr->k_factor);
         }
     }
+#ifdef OPT_IVFPQ_RELAYOUT_DEFAULT
+    auto* ails = dynamic_cast<ArrayInvertedLists*>(ivpq->invlists);
+    if (ails) {
+        ails->ivfpq_relayout(ivpq->pq.M, OPT_IVFPQ_RELAYOUT_DEFAULT);
+    }
+#endif
     return ivpq;
 }
 
