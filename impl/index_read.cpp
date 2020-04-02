@@ -579,6 +579,9 @@ Index *read_index (IOReader *f, int io_flags) {
         read_ivf_header (ivfl, f);
         ivfl->code_size = ivfl->d * sizeof(bfp16_t);
         read_InvertedLists (ivfl, f, io_flags);
+#ifdef OPT_IVFFLAT_BFP16_HW
+        ivfl->precompute();
+#endif
         idx = ivfl;
 #endif
     } else if (h == fourcc ("IxSQ")) {

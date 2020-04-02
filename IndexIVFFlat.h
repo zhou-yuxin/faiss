@@ -31,9 +31,15 @@ struct IndexIVFFlat: IndexIVF {
 #else
     bool use_bfp16;
 
+#ifdef OPT_IVFFLAT_BFP16_HW
+    std::vector<std::vector<float>> sqr_norms;
+#endif
+
     IndexIVFFlat (
             Index * quantizer, size_t d, size_t nlist_,
             MetricType = METRIC_L2, bool use_bfp16 = false);
+
+    void precompute ();
 #endif
 
     /// same as add_with_ids, with precomputed coarse quantizer
