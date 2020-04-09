@@ -32,33 +32,6 @@ NVCCFLAGS += -I.
 
 all: libfaiss.a libfaiss.$(SHAREDEXT)
 
-ifeq ($(OPT_IVFPQ_RELAYOUT), 1)
-    CPPFLAGS += -DOPT_IVFPQ_RELAYOUT
-endif
-
-ifdef OPT_IVFPQ_RELAYOUT_DEFAULT
-    CPPFLAGS += -DOPT_IVFPQ_RELAYOUT_DEFAULT=$(OPT_IVFPQ_RELAYOUT_DEFAULT)
-endif
-
-ifeq ($(OPT_IVFFLAT_BFP16_HW), 1)
-    OPT_IVFFLAT_BFP16 = 1
-    CPPFLAGS += -DOPT_IVFFLAT_BFP16_HW
-endif
-
-ifeq ($(OPT_IVFFLAT_BFP16), 1)
-    USE_BFP16 = 1
-    CPPFLAGS += -DOPT_IVFFLAT_BFP16
-endif
-
-ifeq ($(OPT_IVFPQ_BFP16), 1)
-    USE_BFP16 = 1
-    CPPFLAGS += -DOPT_IVFPQ_BFP16
-endif
-
-ifeq ($(USE_BFP16), 1)
-    CPPFLAGS += -DUSE_BFP16 -Wno-unused-variable
-endif
-
 libfaiss.a: $(OBJ)
 	$(AR) r $@ $^
 

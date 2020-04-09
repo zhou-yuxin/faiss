@@ -422,11 +422,6 @@ static IndexIVFPQ *read_ivfpq (IOReader *f, uint32_t h, int io_flags)
         h == fourcc ("IvQR") || h == fourcc ("IwQR") ?
         new IndexIVFPQR () : nullptr;
     IndexIVFPQ * ivpq = ivfpqr ? ivfpqr : new IndexIVFPQ ();
-#ifdef OPT_IVFPQ_BFP16
-    if (h == fourcc ("IwPH") || h == fourcc ("IwHR")) {
-        ivpq->use_bfp16 = true;
-    }
-#endif
 
     std::vector<std::vector<Index::idx_t> > ids;
     read_ivf_header (ivpq, f, legacy ? &ids : nullptr);
@@ -453,12 +448,6 @@ static IndexIVFPQ *read_ivfpq (IOReader *f, uint32_t h, int io_flags)
             READ1 (ivfpqr->k_factor);
         }
     }
-#ifdef OPT_IVFPQ_RELAYOUT_DEFAULT
-    auto* ails = dynamic_cast<ArrayInvertedLists*>(ivpq->invlists);
-    if (ails) {
-        ails->ivfpq_relayout(ivpq->pq.M, OPT_IVFPQ_RELAYOUT_DEFAULT);
-    }
-#endif
     return ivpq;
 }
 
@@ -572,18 +561,6 @@ Index *read_index (IOReader *f, int io_flags) {
         ivfl->code_size = ivfl->d * sizeof(float);
         read_InvertedLists (ivfl, f, io_flags);
         idx = ivfl;
-#ifdef OPT_IVFFLAT_BFP16
-    } else if (h == fourcc ("IwFH")) {
-        IndexIVFFlat * ivfl = new IndexIVFFlat ();
-        ivfl->use_bfp16 = true;
-        read_ivf_header (ivfl, f);
-        ivfl->code_size = ivfl->d * sizeof(bfp16_t);
-        read_InvertedLists (ivfl, f, io_flags);
-#ifdef OPT_IVFFLAT_BFP16_HW
-        ivfl->precompute();
-#endif
-        idx = ivfl;
-#endif
     } else if (h == fourcc ("IxSQ")) {
         IndexScalarQuantizer * idxs = new IndexScalarQuantizer ();
         read_index_header (idxs, f);
@@ -637,9 +614,6 @@ Index *read_index (IOReader *f, int io_flags) {
         read_InvertedLists (ivsp, f, io_flags);
         idx = ivsp;
     } else if(h == fourcc ("IvPQ") || h == fourcc ("IvQR") ||
-#ifdef OPT_IVFPQ_BFP16
-              h == fourcc ("IwPH") || h == fourcc ("IwHR") ||
-#endif
               h == fourcc ("IwPQ") || h == fourcc ("IwQR")) {
 
         idx = read_ivfpq (f, h, io_flags);

@@ -16,9 +16,6 @@
 #include <faiss/IndexIVF.h>
 #include <faiss/IndexPQ.h>
 
-#ifdef OPT_IVFPQ_BFP16
-#include <faiss/impl/bfp16.h>
-#endif
 
 namespace faiss {
 
@@ -58,21 +55,10 @@ struct IndexIVFPQ: IndexIVF {
     /// if use_precompute_table
     /// size nlist * pq.M * pq.ksub
     std::vector <float> precomputed_table;
-#ifdef OPT_IVFPQ_BFP16
-    std::vector <bfp16_t> precomputed_table_bfp16;
-    bool use_bfp16;
-#endif
 
-#ifndef OPT_IVFPQ_BFP16
     IndexIVFPQ (
             Index * quantizer, size_t d, size_t nlist,
             size_t M, size_t nbits_per_idx, MetricType metric = METRIC_L2);
-#else
-    IndexIVFPQ (
-            Index * quantizer, size_t d, size_t nlist,
-            size_t M, size_t nbits_per_idx, MetricType metric = METRIC_L2,
-            bool use_bfp16 = false);
-#endif
 
     void add_with_ids(idx_t n, const float* x, const idx_t* xids = nullptr)
         override;

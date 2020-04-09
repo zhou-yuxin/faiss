@@ -17,9 +17,6 @@
 #include <faiss/Clustering.h>
 #include <faiss/utils/Heap.h>
 
-#ifdef USE_BFP16
-#include <faiss/impl/bfp16.h>
-#endif
 
 namespace faiss {
 
@@ -138,22 +135,6 @@ struct ProductQuantizer {
     void compute_inner_prod_tables (size_t nx,
                                     const float * x,
                                     float * dis_tables) const;
-
-#ifdef USE_BFP16
-    void compute_distance_table (const float * x,
-                                 bfp16_t * dis_table) const;
-
-    void compute_inner_prod_table (const float * x,
-                                   bfp16_t * dis_table) const;
-
-    void compute_distance_tables (size_t nx,
-                                  const float * x,
-                                  bfp16_t * dis_tables) const;
-
-    void compute_inner_prod_tables (size_t nx,
-                                    const float * x,
-                                    bfp16_t * dis_tables) const;
-#endif
 
     /** perform a search (L2 distance)
      * @param x        query vectors, size nx * d

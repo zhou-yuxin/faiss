@@ -18,9 +18,6 @@
 #include <faiss/impl/FaissAssert.h>
 #include <faiss/impl/AuxIndexStructures.h>
 
-#ifdef OPT_IVFFLAT_BFP16
-#include <faiss/impl/bfp16.h>
-#endif
 
 namespace faiss {
 
@@ -29,47 +26,13 @@ namespace faiss {
  * IndexIVFFlat implementation
  ******************************************/
 
-#ifndef OPT_IVFFLAT_BFP16
+
 IndexIVFFlat::IndexIVFFlat (Index * quantizer,
                             size_t d, size_t nlist, MetricType metric):
     IndexIVF (quantizer, d, nlist, sizeof(float) * d, metric)
 {
     code_size = sizeof(float) * d;
 }
-#else
-IndexIVFFlat::IndexIVFFlat (Index * quantizer,
-                            size_t d, size_t nlist, MetricType metric,
-                            bool bfp16):
-    IndexIVF (quantizer, d, nlist,
-        (bfp16 ? sizeof(bfp16_t) : sizeof(float)) * d, metric),
-    use_bfp16 (bfp16)
-{
-#ifdef OPT_IVFFLAT_BFP16_HW
-    if (use_bfp16) {
-        sqr_norms.resize(nlist);
-    }
-#endif
-}
-#endif
-
-#ifdef OPT_IVFFLAT_BFP16_HW
-void IndexIVFFlat::precompute() {
-    if (use_bfp16) {
-        sqr_norms.resize(nlist);
-        float y[d];
-        for (size_t ilist = 0; ilist < nlist; ilist++) {
-            const bfp16_t* codes = (const bfp16_t*)invlists->get_codes(ilist);
-            size_t count = invlists->list_size(ilist);
-            std::vector<float>& norms = sqr_norms[ilist];
-            for (size_t i = 0; i < count; i++) {
-                convert_from_bfp16 (d, codes, y);
-                norms.push_back(fvec_norm_L2sqr(y, d));
-                codes += d;
-            }
-        }
-    }
-}
-#endif
 
 void IndexIVFFlat::add_with_ids (idx_t n, const float * x, const idx_t *xids)
 {
@@ -102,16 +65,6 @@ void IndexIVFFlat::add_core (idx_t n, const float * x, const int64_t *xids,
 
         if (list_no >= 0) {
             const float *xi = x + i * d;
-#ifdef OPT_IVFFLAT_BFP16
-            if (use_bfp16) {
-#ifdef OPT_IVFFLAT_BFP16_HW
-                sqr_norms[list_no].push_back(fvec_norm_L2sqr (xi, d));
-#endif
-                bfp16_t buffer [d];
-                convert_to_bfp16 (d, xi, buffer);
-                xi = (const float*) buffer;
-            }
-#endif
             offset = invlists->add_entry (
                      list_no, id, (const uint8_t*) xi);
             n_add++;
@@ -134,16 +87,6 @@ void IndexIVFFlat::encode_vectors(idx_t n, const float* x,
                                   bool include_listnos) const
 {
     if (!include_listnos) {
-#ifdef OPT_IVFFLAT_BFP16
-        if (use_bfp16) {
-            for (size_t i = 0; i < n; i++) {
-                convert_to_bfp16 (d, x, (bfp16_t*) codes);
-                x += d;
-                codes += code_size;
-            }
-            return;
-        }
-#endif
         memcpy (codes, x, code_size * n);
     } else {
         size_t coarse_size = coarse_code_size ();
@@ -153,12 +96,6 @@ void IndexIVFFlat::encode_vectors(idx_t n, const float* x,
             const float *xi = x + i * d;
             if (list_no >= 0) {
                 encode_listno (list_no, code);
-#ifdef OPT_IVFFLAT_BFP16
-                if (use_bfp16) {
-                    convert_to_bfp16 (d, xi, (bfp16_t*) (code + coarse_size));
-                    continue;
-                }
-#endif
                 memcpy (code + coarse_size, xi, code_size);
             } else {
                 memset (code, 0, code_size + coarse_size);
@@ -175,12 +112,6 @@ void IndexIVFFlat::sa_decode (idx_t n, const uint8_t *bytes,
     for (size_t i = 0; i < n; i++) {
         const uint8_t *code = bytes + i * (code_size + coarse_size);
         float *xi = x + i * d;
-#ifdef OPT_IVFFLAT_BFP16
-        if (use_bfp16) {
-            convert_from_bfp16 (d, (bfp16_t*) (code + coarse_size), xi);
-            continue;
-        }
-#endif
         memcpy (xi, code + coarse_size, code_size);
     }
 }
@@ -194,63 +125,20 @@ struct IVFFlatScanner: InvertedListScanner {
     size_t d;
     bool store_pairs;
 
-#ifndef OPT_IVFFLAT_BFP16
     IVFFlatScanner(size_t d, bool store_pairs):
         d(d), store_pairs(store_pairs) {}
-#else
-    const bool use_bfp16;
-
-#ifndef OPT_IVFFLAT_BFP16_HW
-    IVFFlatScanner(size_t d, bool store_pairs, bool bfp16):
-        d(d), store_pairs(store_pairs), use_bfp16(bfp16) {}
-#else
-    const IndexIVFFlat* index;
-    const float* sqr_norm_ys;
-    float sqr_norm_x;
-
-    IVFFlatScanner(size_t d, bool store_pairs, bool bfp16,
-            const IndexIVFFlat* index):
-        d(d), store_pairs(store_pairs), use_bfp16(bfp16), index(index) {}
-#endif
-#endif
 
     const float *xi;
-#ifdef OPT_IVFFLAT_BFP16
-    std::vector<bfp16_t> xi_bfp16;
-#endif
     void set_query (const float *query) override {
         this->xi = query;
-#ifdef OPT_IVFFLAT_BFP16
-        if (use_bfp16) {
-            xi_bfp16.resize (d);
-            convert_to_bfp16 (d, query, xi_bfp16.data());
-#ifdef OPT_IVFFLAT_BFP16_HW
-            sqr_norm_x = fvec_norm_L2sqr(query, d);
-#endif
-        }
-#endif
     }
 
     idx_t list_no;
     void set_list (idx_t list_no, float /* coarse_dis */) override {
         this->list_no = list_no;
-#ifdef OPT_IVFFLAT_BFP16_HW
-        if (use_bfp16) {
-            sqr_norm_ys = index->sqr_norms[list_no].data();
-        }
-#endif
     }
 
     float distance_to_code (const uint8_t *code) const override {
-#ifdef OPT_IVFFLAT_BFP16
-        if (use_bfp16) {
-            const bfp16_t* yj = (const bfp16_t*)code;
-            float dis = metric == METRIC_INNER_PRODUCT ?
-                fvec_inner_product (xi_bfp16.data(), yj, d) :
-                fvec_L2sqr (xi_bfp16.data(), yj, d);
-            return dis;
-        }
-#endif
         const float *yj = (float*)code;
         float dis = metric == METRIC_INNER_PRODUCT ?
             fvec_inner_product (xi, yj, d) : fvec_L2sqr (xi, yj, d);
@@ -264,35 +152,11 @@ struct IVFFlatScanner: InvertedListScanner {
                        size_t k) const override
     {
         const float *list_vecs = (const float*)codes;
-#ifdef OPT_IVFFLAT_BFP16
-        size_t code_size = (use_bfp16 ? sizeof(bfp16_t) : sizeof(float)) * d;
-#endif
         size_t nup = 0;
         for (size_t j = 0; j < list_size; j++) {
-#ifndef OPT_IVFFLAT_BFP16
             const float * yj = list_vecs + d * j;
             float dis = metric == METRIC_INNER_PRODUCT ?
                 fvec_inner_product (xi, yj, d) : fvec_L2sqr (xi, yj, d);
-#else
-            float dis;
-            if (use_bfp16) {
-                const bfp16_t* yj = (const bfp16_t*)codes;
-                dis = metric == METRIC_INNER_PRODUCT ?
-                    fvec_inner_product (xi_bfp16.data(), yj, d) :
-#ifndef OPT_IVFFLAT_BFP16_HW
-                    fvec_L2sqr (xi_bfp16.data(), yj, d);
-#else
-                    sqr_norm_x + sqr_norm_ys[j]
-                        - 2 * fvec_inner_product (xi_bfp16.data(), yj, d);
-#endif
-                codes += code_size;
-            }
-            else {
-                const float * yj = list_vecs + d * j;
-                dis = metric == METRIC_INNER_PRODUCT ?
-                    fvec_inner_product (xi, yj, d) : fvec_L2sqr (xi, yj, d);
-        }
-#endif
             if (C::cmp (simi[0], dis)) {
                 heap_pop<C> (k, simi, idxi);
                 int64_t id = store_pairs ? lo_build (list_no, j) : ids[j];
@@ -309,20 +173,11 @@ struct IVFFlatScanner: InvertedListScanner {
                            float radius,
                            RangeQueryResult & res) const override
     {
-#ifndef OPT_IVFFLAT_BFP16
         const float *list_vecs = (const float*)codes;
-#else
-        size_t code_size = (use_bfp16 ? sizeof(bfp16_t) : sizeof(float)) * d;
-#endif
         for (size_t j = 0; j < list_size; j++) {
-#ifndef OPT_IVFFLAT_BFP16
             const float * yj = list_vecs + d * j;
             float dis = metric == METRIC_INNER_PRODUCT ?
                 fvec_inner_product (xi, yj, d) : fvec_L2sqr (xi, yj, d);
-#else
-            float dis = distance_to_code (codes);
-            codes += code_size;
-#endif
             if (C::cmp (radius, dis)) {
                 int64_t id = store_pairs ? lo_build (list_no, j) : ids[j];
                 res.add (dis, id);
@@ -342,30 +197,11 @@ InvertedListScanner* IndexIVFFlat::get_InvertedListScanner
      (bool store_pairs) const
 {
     if (metric_type == METRIC_INNER_PRODUCT) {
-#ifndef OPT_IVFFLAT_BFP16
         return new IVFFlatScanner<
             METRIC_INNER_PRODUCT, CMin<float, int64_t> > (d, store_pairs);
-#elif defined(OPT_IVFFLAT_BFP16_HW)
-        return new IVFFlatScanner<
-            METRIC_INNER_PRODUCT, CMin<float, int64_t> > (d, store_pairs,
-                use_bfp16, this);
-#else
-        return new IVFFlatScanner<
-            METRIC_INNER_PRODUCT, CMin<float, int64_t> > (d, store_pairs,
-                use_bfp16);
-#endif
     } else if (metric_type == METRIC_L2) {
-#ifndef OPT_IVFFLAT_BFP16
         return new IVFFlatScanner<
             METRIC_L2, CMax<float, int64_t> >(d, store_pairs);
-#elif defined(OPT_IVFFLAT_BFP16_HW)
-        return new IVFFlatScanner<
-            METRIC_L2, CMax<float, int64_t> >(d, store_pairs, use_bfp16,
-                this);
-#else
-        return new IVFFlatScanner<
-            METRIC_L2, CMax<float, int64_t> >(d, store_pairs, use_bfp16);
-#endif
     } else {
         FAISS_THROW_MSG("metric type not supported");
     }

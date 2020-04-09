@@ -20,9 +20,6 @@
 
 #include <faiss/utils/Heap.h>
 
-#ifdef USE_BFP16
-#include <faiss/impl/bfp16.h>
-#endif
 
 namespace faiss {
 
@@ -62,17 +59,6 @@ void fvec_madd (size_t n, const float *a,
  */
 int fvec_madd_and_argmin (size_t n, const float *a,
                            float bf, const float *b, float *c);
-
-#ifdef USE_BFP16
-void fvec_madd (size_t n, const float *a,
-                float bf, const bfp16_t *b, bfp16_t *c);
-
-void fvec_madd (size_t n, const bfp16_t *a,
-                float bf, const float *b, float *c);
-
-int fvec_madd_and_argmin (size_t n, const bfp16_t *a,
-                          float bf, const float *b, float *c);
-#endif
 
 /* perform a reflection (not an efficient implementation, just for test ) */
 void reflection (const float * u, float * x, size_t n, size_t d, size_t nu);
@@ -172,12 +158,6 @@ uint64_t hash_bytes (const uint8_t *bytes, int64_t n);
 
 /** Whether OpenMP annotations were respected. */
 bool check_openmp();
-
-#ifdef USE_BFP16
-void convert_to_bfp16 (size_t d, const float* in, bfp16_t* out);
-
-void convert_from_bfp16 (size_t d, const bfp16_t* in, float* out);
-#endif
 
 } // namspace faiss
 

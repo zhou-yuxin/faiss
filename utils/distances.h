@@ -16,9 +16,6 @@
 
 #include <faiss/utils/Heap.h>
 
-#ifdef USE_BFP16
-#include <faiss/impl/bfp16.h>
-#endif
 
 namespace faiss {
 
@@ -238,17 +235,5 @@ void range_search_inner_product (
         size_t d, size_t nx, size_t ny,
         float radius,
         RangeSearchResult *result);
-
-#ifdef USE_BFP16
-float fvec_L2sqr (const bfp16_t* x, const bfp16_t* y, size_t d);
-
-float fvec_inner_product (const bfp16_t* x, const bfp16_t* y, size_t d);
-
-void fvec_L2sqr_ny (bfp16_t* dis, const float* x, const float* y, size_t d,
-        size_t ny);
-
-void fvec_inner_products_ny (bfp16_t* ip, const float* x, const float* y,
-        size_t d, size_t ny);
-#endif
 
 } // namespace faiss

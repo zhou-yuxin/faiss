@@ -395,11 +395,7 @@ void write_index (const Index *idx, IOWriter *f) {
         write_InvertedLists (ivfl->invlists, f);
     } else if(const IndexIVFFlat * ivfl =
               dynamic_cast<const IndexIVFFlat *> (idx)) {
-#ifndef OPT_IVFFLAT_BFP16
         uint32_t h = fourcc ("IwFl");
-#else
-        uint32_t h = fourcc (ivfl->use_bfp16 ? "IwFH" : "IwFl");
-#endif
         WRITE1 (h);
         write_ivf_header (ivfl, f);
         write_InvertedLists (ivfl->invlists, f);
@@ -427,17 +423,7 @@ void write_index (const Index *idx, IOWriter *f) {
               dynamic_cast<const IndexIVFPQ *> (idx)) {
         const IndexIVFPQR * ivfpqr = dynamic_cast<const IndexIVFPQR *> (idx);
 
-#ifndef OPT_IVFPQ_BFP16
         uint32_t h = fourcc (ivfpqr ? "IwQR" : "IwPQ");
-#else
-        uint32_t h;
-        if (ivpq->use_bfp16) {
-            h = fourcc (ivfpqr ? "IwHR" : "IwPH");
-        }
-        else {
-            h = fourcc (ivfpqr ? "IwQR" : "IwPQ");
-        }
-#endif
         WRITE1 (h);
         write_ivf_header (ivpq, f);
         WRITE1 (ivpq->by_residual);

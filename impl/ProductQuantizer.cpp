@@ -599,42 +599,6 @@ void ProductQuantizer::compute_inner_prod_tables (
     }
 }
 
-#ifdef USE_BFP16
-void ProductQuantizer::compute_distance_table (const float* x,
-        bfp16_t* dis_table) const {
-    for (size_t m = 0; m < M; m++) {
-        fvec_L2sqr_ny (dis_table, x, get_centroids(m, 0), dsub, ksub);
-        x += dsub;
-        dis_table += ksub;
-    }
-}
-
-void ProductQuantizer::compute_inner_prod_table (const float* x,
-        bfp16_t* dis_table) const {
-    for (size_t m = 0; m < M; m++) {
-        fvec_inner_products_ny (dis_table, x, get_centroids(m, 0), dsub, ksub);
-        x += dsub;
-        dis_table += ksub;
-    }
-}
-
-void ProductQuantizer::compute_distance_tables (size_t nx, const float* x,
-        bfp16_t* dis_tables) const {
-#pragma omp parallel for
-    for (size_t i = 0; i < nx; i++) {
-        compute_distance_table (x + i * d, dis_tables + i * ksub * M);
-    }
-}
-
-void ProductQuantizer::compute_inner_prod_tables (size_t nx, const float* x,
-        bfp16_t* dis_tables) const {
-#pragma omp parallel for
-    for (size_t i = 0; i < nx; i++) {
-        compute_inner_prod_table (x + i * d, dis_tables + i * ksub * M);
-    }
-}
-#endif
-
 template <class C>
 static void pq_knn_search_with_tables (
       const ProductQuantizer& pq,
