@@ -20,6 +20,8 @@ To enable this feature, you should append `--enable-ivfpq-relayout` to `./config
 
 ```
 ./configure --without-cuda --enable-ivfpq-relayout
+make clean
+make
 ```
 
 Then, an IndexIVFPQ instance can be set to use this feature by such code:
@@ -30,8 +32,10 @@ ps.set_index_parameter (index, 'ivfpq_relayout', 4)
 ```
 or
 ```
-#in C++
+# in C++
 faiss::ParameterSpace ps;
 ps.set_index_parameter (index, "ivfpq_relayout", 4);
 ```
 where *ivfpq_relayout* means the group size of relayout. Although *ivfpq_relayout* can be any non-negative integer, but 4 is usually the best based on experience.
+
+You can set *ivfpq_relayout* to any non-negative integer at any time, no matter before or after trainging or adding vectors. The only drawback is that, if you set *ivfpq_relayout* when IndexIVFPQ already has some base vectors, it will take some time to convert the memory layout.
