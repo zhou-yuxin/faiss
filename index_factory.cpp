@@ -19,6 +19,9 @@
 #include <faiss/impl/FaissAssert.h>
 #include <faiss/utils/utils.h>
 #include <faiss/utils/random.h>
+#ifdef OPT_DTYPE_UTILS
+#include <faiss/impl/bfp16.h>
+#endif
 
 #include <faiss/IndexFlat.h>
 #include <faiss/VectorTransform.h>
@@ -34,6 +37,9 @@
 #include <faiss/IndexScalarQuantizer.h>
 #include <faiss/IndexHNSW.h>
 #include <faiss/IndexLattice.h>
+#ifdef OPT_FLAT_DTYPE
+#include <faiss/IndexFlat_T.h>
+#endif
 
 #include <faiss/IndexBinaryFlat.h>
 #include <faiss/IndexBinaryHNSW.h>
@@ -66,6 +72,19 @@ char get_trains_alone(const Index *coarse_quantizer) {
         0;
 }
 
+#ifdef OPT_FLAT_DTYPE
+Index* build_index_flat_T (const char* dtype, size_t d, MetricType metric) {
+    if (!dtype) {
+        return new IndexFlat (d, metric);
+    } else if (strcmp (dtype, "fp32") == 0) {
+        return new IndexFlat_T<float> (d, metric);
+    } else if (strcmp (dtype, "bfp16") == 0) {
+        return new IndexFlat_T<bfp16_t> (d, metric);
+    } else {
+        FAISS_THROW_FMT ("unsupported dtype: '%s'", dtype);
+    }
+}
+#endif
 
 }
 
@@ -87,6 +106,9 @@ Index *index_factory (int d, const char *description_in, MetricType metric)
 
     int64_t ncentroids = -1;
     bool use_2layer = false;
+#ifdef OPT_DTYPE_UTILS
+    const char* dtype = nullptr;
+#endif
 
     for (char *tok = strtok_r (description, " ,", &ptr);
          tok;
@@ -189,7 +211,11 @@ Index *index_factory (int d, const char *description_in, MetricType metric)
             } else {
                 FAISS_THROW_IF_NOT_MSG (stok != "FlatDedup",
                                         "dedup supported only for IVFFlat");
+#ifndef OPT_FLAT_DTYPE
                 index_1 = new IndexFlat (d, metric);
+#else
+                index_1 = build_index_flat_T (dtype, d, metric);
+#endif
             }
         } else if (!index && (stok == "SQ8" || stok == "SQ4" || stok == "SQ6" ||
                               stok == "SQfp16")) {
@@ -290,6 +316,12 @@ Index *index_factory (int d, const char *description_in, MetricType metric)
             index_1 = new IndexLattice(d, M, nbit, r2);
         } else if (stok == "RFlat") {
             make_IndexRefineFlat = true;
+#ifdef OPT_DTYPE_UTILS
+        } else if (strcasecmp (stok.data(), "fp32") == 0) {
+            dtype = "fp32";
+        } else if (strcasecmp (stok.data(), "bfp16") == 0) {
+            dtype = "bfp16";
+#endif
         } else {
             FAISS_THROW_FMT( "could not parse token \"%s\" in %s\n",
                              tok, description_in);

@@ -20,6 +20,9 @@
 #include <faiss/impl/FaissAssert.h>
 #include <faiss/impl/io.h>
 #include <faiss/utils/hamming.h>
+#ifdef OPT_DTYPE_UTILS
+#include <faiss/impl/bfp16.h>
+#endif
 
 #include <faiss/IndexFlat.h>
 #include <faiss/VectorTransform.h>
@@ -36,6 +39,9 @@
 #include <faiss/IndexScalarQuantizer.h>
 #include <faiss/IndexHNSW.h>
 #include <faiss/IndexLattice.h>
+#ifdef OPT_FLAT_DTYPE
+#include <faiss/IndexFlat_T.h>
+#endif
 
 #include <faiss/OnDiskInvertedLists.h>
 #include <faiss/IndexBinaryFlat.h>
@@ -318,6 +324,40 @@ static void write_ivf_header (const IndexIVF *ivf, IOWriter *f) {
     write_direct_map (&ivf->direct_map, f);
 }
 
+#ifdef OPT_FLAT_DTYPE
+
+template <typename T, char Cname>
+bool try_write_index_flat_T (const Index* idx, IOWriter* f) {
+    if (const IndexFlat_T<T>* idxf =
+            dynamic_cast<const IndexFlat_T<T>*> (idx)) {
+        char name[5] = {'F', 'l', '?', Cname, 0};
+        if (idxf->metric_type == METRIC_INNER_PRODUCT) {
+            name[2] = 'I';
+        }
+        else if (idxf->metric_type == METRIC_L2) {
+            name[2] = '2';
+        }
+        else {
+            FAISS_THROW_FMT ("unsupported metric: %d",
+                    (int)idxf->metric_type);
+        }
+        uint32_t h = fourcc (name);
+        WRITE1 (h);
+        write_index_header (idx, f);
+        WRITEVECTOR (idxf->base);
+        WRITEVECTOR (idxf->norms);
+        return true;
+    }
+    return false;
+}
+
+bool try_write_index_flat_T (const Index* idx, IOWriter* f) {
+    return try_write_index_flat_T<float, 'A'> (idx, f) ||
+        try_write_index_flat_T<bfp16_t, 'B'> (idx, f);
+}
+
+#endif
+
 void write_index (const Index *idx, IOWriter *f) {
     if (const IndexFlat * idxf = dynamic_cast<const IndexFlat *> (idx)) {
         uint32_t h = fourcc (
@@ -326,6 +366,9 @@ void write_index (const Index *idx, IOWriter *f) {
         WRITE1 (h);
         write_index_header (idx, f);
         WRITEVECTOR (idxf->xb);
+#ifdef OPT_FLAT_DTYPE
+    } else if (try_write_index_flat_T (idx, f)) {
+#endif
     } else if(const IndexLSH * idxl = dynamic_cast<const IndexLSH *> (idx)) {
         uint32_t h = fourcc ("IxHe");
         WRITE1 (h);

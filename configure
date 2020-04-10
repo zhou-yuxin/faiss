@@ -720,6 +720,7 @@ with_cuda
 with_cuda_arch
 enable_openmp
 enable_ivfpq_relayout
+enable_flat_dtype
 with_blas
 with_lapack
 '
@@ -6760,6 +6761,22 @@ if test "${enable_ivfpq_relayout+set}" = set; then :
   OPT_FEATURES+="-DOPT_IVFPQ_RELAYOUT"
 else
   $as_echo "no"
+fi
+
+WITH_DTYPE_UTILS=0
+
+# Check whether --enable_flat_dtype was given.
+$as_echo_n "checking for Flat dtype enhancement... "
+if test "${enable_flat_dtype+set}" = set; then :
+  $as_echo "yes"
+  OPT_FEATURES+=" -DOPT_FLAT_DTYPE"
+  WITH_DTYPE_UTILS=1
+else
+  $as_echo "no"
+fi
+
+if test $WITH_DTYPE_UTILS -eq 1; then
+  OPT_FEATURES+=" -DOPT_DTYPE_UTILS"
 fi
 
 # Finally, execute ACTION-IF-FOUND/ACTION-IF-NOT-FOUND:
