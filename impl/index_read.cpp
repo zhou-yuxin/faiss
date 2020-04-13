@@ -42,6 +42,9 @@
 #ifdef OPT_FLAT_DTYPE
 #include <faiss/IndexFlat_T.h>
 #endif
+#ifdef OPT_IVFFLAT_DTYPE
+#include <faiss/IndexIVFFlat_T.h>
+#endif
 
 #include <faiss/OnDiskInvertedLists.h>
 #include <faiss/IndexBinaryFlat.h>
@@ -458,22 +461,11 @@ static IndexIVFPQ *read_ivfpq (IOReader *f, uint32_t h, int io_flags)
 }
 
 #ifdef OPT_FLAT_DTYPE
-
 template <typename T, char Cname>
 Index* try_read_index_flat_T (uint32_t h, IOReader* f) {
     const char* hstr = (const char*) &h;
-    if (hstr[0] == 'F' && hstr[1] == 'l' && hstr[3] == Cname) {
+    if (strncmp (hstr, "iFl", 3) == 0 && hstr[3] == Cname) {
         IndexFlat_T<T> *idxf = new IndexFlat_T<T>;
-        char metric = hstr[2];
-        if (metric == 'I') {
-            idxf->metric_type = METRIC_INNER_PRODUCT;
-        }
-        else if (metric == '2') {
-            idxf->metric_type = METRIC_L2;
-        }
-        else {
-            FAISS_THROW_FMT ("unsupported metric: %c", metric);
-        }
         read_index_header (idxf, f);
         READVECTOR (idxf->base);
         READVECTOR (idxf->norms);
@@ -492,7 +484,36 @@ Index* try_read_index_flat_T (uint32_t h, IOReader* f) {
     }
     return nullptr;
 }
+#endif
 
+#ifdef OPT_IVFFLAT_DTYPE
+template <typename T, char Cname>
+Index* try_read_index_ivfflat_T (uint32_t h, IOReader* f, int io_flags) {
+    const char* hstr = (const char*) &h;
+    if (strncmp (hstr, "vFl", 3) == 0 && hstr[3] == Cname) {
+        IndexIVFFlat_T<T> * ivfl = new IndexIVFFlat_T<T>;
+        read_ivf_header (ivfl, f);
+        ivfl->code_size = ivfl->d * sizeof(T);
+        read_InvertedLists (ivfl, f, io_flags);
+        ivfl->norms.resize (ivfl->nlist);
+        for (size_t i = 0; i < ivfl->nlist; i++) {
+            READVECTOR (ivfl->norms [i]);
+        }
+        return ivfl;
+    }
+    return nullptr;
+}
+
+Index* try_read_index_ivfflat_T (uint32_t h, IOReader* f, int io_flags) {
+    Index* idx;
+    if ((idx = try_read_index_ivfflat_T<float, 'A'> (h, f, io_flags))) {
+        return idx;
+    } else if ((idx = try_read_index_ivfflat_T<bfp16_t, 'B'>
+            (h, f, io_flags))) {
+        return idx;
+    }
+    return nullptr;
+}
 #endif
 
 int read_old_fmt_hack = 0;
@@ -517,6 +538,9 @@ Index *read_index (IOReader *f, int io_flags) {
         idx = idxf;
 #ifdef OPT_FLAT_DTYPE
     } else if ((idx = try_read_index_flat_T (h, f))) {
+#endif
+#ifdef OPT_IVFFLAT_DTYPE
+    } else if ((idx = try_read_index_ivfflat_T (h, f, io_flags))) {
 #endif
     } else if (h == fourcc("IxHE") || h == fourcc("IxHe")) {
         IndexLSH * idxl = new IndexLSH ();

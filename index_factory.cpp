@@ -40,6 +40,9 @@
 #ifdef OPT_FLAT_DTYPE
 #include <faiss/IndexFlat_T.h>
 #endif
+#ifdef OPT_IVFFLAT_DTYPE
+#include <faiss/IndexIVFFlat_T.h>
+#endif
 
 #include <faiss/IndexBinaryFlat.h>
 #include <faiss/IndexBinaryHNSW.h>
@@ -80,6 +83,21 @@ Index* build_index_flat_T (const char* dtype, size_t d, MetricType metric) {
         return new IndexFlat_T<float> (d, metric);
     } else if (strcmp (dtype, "bfp16") == 0) {
         return new IndexFlat_T<bfp16_t> (d, metric);
+    } else {
+        FAISS_THROW_FMT ("unsupported dtype: '%s'", dtype);
+    }
+}
+#endif
+
+#ifdef OPT_IVFFLAT_DTYPE
+IndexIVF* build_index_ivfflat_T (const char* dtype, Index* quantizer,
+        size_t d, size_t nlist, MetricType metric) {
+    if (!dtype) {
+        return new IndexIVFFlat (quantizer, d, nlist, metric);
+    } else if (strcmp (dtype, "fp32") == 0) {
+        return new IndexIVFFlat_T<float> (quantizer, d, nlist, metric);
+    } else if (strcmp (dtype, "bfp16") == 0) {
+        return new IndexIVFFlat_T<bfp16_t> (quantizer, d, nlist, metric);
     } else {
         FAISS_THROW_FMT ("unsupported dtype: '%s'", dtype);
     }
@@ -166,11 +184,15 @@ Index *index_factory (int d, const char *description_in, MetricType metric)
 
         } else if (!coarse_quantizer &&
                    sscanf (tok, "IVF%ld", &ncentroids) == 1) {
+#ifndef OPT_FLAT_DTYPE
             if (metric == METRIC_L2) {
                 coarse_quantizer_1 = new IndexFlatL2 (d);
             } else {
                 coarse_quantizer_1 = new IndexFlatIP (d);
             }
+#else
+            coarse_quantizer_1 = build_index_flat_T (dtype, d, metric);
+#endif
         } else if (!coarse_quantizer && sscanf (tok, "IMI2x%d", &nbit) == 1) {
             FAISS_THROW_IF_NOT_MSG (metric == METRIC_L2,
                              "MultiIndex not implemented for inner prod search");
@@ -198,8 +220,13 @@ Index *index_factory (int d, const char *description_in, MetricType metric)
             if (coarse_quantizer) {
                 // if there was an IVF in front, then it is an IVFFlat
                 IndexIVF *index_ivf = stok == "Flat" ?
+#ifndef OPT_IVFFLAT_DTYPE
                     new IndexIVFFlat (
                           coarse_quantizer, d, ncentroids, metric) :
+#else
+                    build_index_ivfflat_T (dtype, coarse_quantizer, d,
+                            ncentroids, metric) :
+#endif
                     new IndexIVFFlatDedup (
                           coarse_quantizer, d, ncentroids, metric);
                 index_ivf->quantizer_trains_alone =
@@ -321,6 +348,8 @@ Index *index_factory (int d, const char *description_in, MetricType metric)
             dtype = "fp32";
         } else if (strcasecmp (stok.data(), "bfp16") == 0) {
             dtype = "bfp16";
+        } else if (strcasecmp (stok.data(), "non-type") == 0) {
+            dtype = nullptr;
 #endif
         } else {
             FAISS_THROW_FMT( "could not parse token \"%s\" in %s\n",

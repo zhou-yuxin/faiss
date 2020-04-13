@@ -9,7 +9,6 @@
 #include <faiss/impl/FaissAssert.h>
 
 #include <faiss/utils/dtype.h>
-#include <faiss/utils/distances.h>
 
 namespace faiss {
 
@@ -33,7 +32,10 @@ struct IndexFlat_T: Index {
                 base.push_back (static_cast<T> (yi[j]));
             }
             if (metric_type == METRIC_L2) {
-                norms.push_back (fvec_norm_L2sqr (yi, d));
+                norms.push_back (vec_IP_T (yi, yi, d));                    
+            }
+            else if (metric_type == METRIC_COSINE) {
+                norms.push_back (1.0f / std::sqrt (vec_IP_T (yi, yi, d)));
             }
             yi += d;
         }
@@ -57,8 +59,13 @@ struct IndexFlat_T: Index {
         } else if (metric_type == METRIC_L2) {
             float_maxheap_array_t res = {
                 size_t(n), size_t(k), labels, distances};
-            knn_L2sqr_T (converter.x, base.data(), norms.data(), d, n,
-                    ntotal, &res);
+            knn_L2sqr_T (converter.x, base.data(), d, n, ntotal,
+                    &res, norms.data());
+        } else if (metric_type == METRIC_COSINE) {
+            float_minheap_array_t res = {
+                size_t(n), size_t(k), labels, distances};
+            knn_cosine_T (converter.x, base.data(), d, n, ntotal,
+                    &res, norms.data());
         }
         else {
             FAISS_THROW_FMT("unsupported metric type: %d", (int)metric_type);

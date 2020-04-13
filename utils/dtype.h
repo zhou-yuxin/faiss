@@ -248,36 +248,61 @@ void knn_greater_better_T (const T* x, const T* y, size_t d,
 }
 
 template <typename T>
-void knn_inner_product_T (const T* x, const T* y, size_t d,
+inline void knn_inner_product_T (const T* x, const T* y, size_t d,
         size_t nx, size_t ny, float_minheap_array_t* res) {
+
     struct IP {
 
-        inline float operator ()(size_t, size_t, const T* xi, const T* yj,
-                size_t d) {
+        inline float operator () (size_t /*ix*/, size_t /*jy*/,
+                const T* xi, const T* yj, size_t d) const {
             return vec_IP_T (xi, yj, d);
         }
 
-    };
-    IP ip;
+    }
+    ip;
     knn_greater_better_T (x, y, d, nx, ny, res, ip);
 }
 
 template <typename T>
-void knn_L2sqr_T (const T* x, const T* y, const float* y_norm, size_t d,
-        size_t nx, size_t ny, float_maxheap_array_t* res) {
+inline void knn_L2sqr_T (const T* x, const T* y, size_t d,
+        size_t nx, size_t ny, float_maxheap_array_t* res,
+        const float* y_norm) {
+
     struct L2Sqr {
 
-        const float* y_norm;
+        const float* y_norm_sqr;
 
-        inline float operator ()(size_t, size_t j, const T* xi, const T* yj,
-                size_t d) {
-            return y_norm[j] - 2 * vec_IP_T (xi, yj, d);
+        inline float operator () (size_t /*ix*/, size_t jy,
+                const T* xi, const T* yj, size_t d) const {
+            return y_norm_sqr[jy] - 2 * vec_IP_T (xi, yj, d);
         }
 
+    }
+    l2sqr = {
+        .y_norm_sqr = y_norm,
     };
-    L2Sqr l2sqr;
-    l2sqr.y_norm = y_norm;
     knn_less_better_T (x, y, d, nx, ny, res, l2sqr);
+}
+
+template <typename T>
+inline void knn_cosine_T (const T* x, const T* y, size_t d,
+        size_t nx, size_t ny, float_minheap_array_t* res,
+        const float* y_norm) {
+
+    struct Cosine {
+
+        const float* y_norm_recip;
+
+        inline float operator () (size_t /*ix*/, size_t jy,
+                const T* xi, const T* yj, size_t d) const {
+            return vec_IP_T (xi, yj, d) * y_norm_recip[jy];
+        }
+
+    }
+    cosine = {
+        .y_norm_recip = y_norm,
+    };
+    knn_greater_better_T (x, y, d, nx, ny, res, cosine);
 }
 
 }

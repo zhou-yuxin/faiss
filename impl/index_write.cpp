@@ -42,6 +42,9 @@
 #ifdef OPT_FLAT_DTYPE
 #include <faiss/IndexFlat_T.h>
 #endif
+#ifdef OPT_IVFFLAT_DTYPE
+#include <faiss/IndexIVFFlat_T.h>
+#endif
 
 #include <faiss/OnDiskInvertedLists.h>
 #include <faiss/IndexBinaryFlat.h>
@@ -325,22 +328,11 @@ static void write_ivf_header (const IndexIVF *ivf, IOWriter *f) {
 }
 
 #ifdef OPT_FLAT_DTYPE
-
 template <typename T, char Cname>
 bool try_write_index_flat_T (const Index* idx, IOWriter* f) {
     if (const IndexFlat_T<T>* idxf =
             dynamic_cast<const IndexFlat_T<T>*> (idx)) {
-        char name[5] = {'F', 'l', '?', Cname, 0};
-        if (idxf->metric_type == METRIC_INNER_PRODUCT) {
-            name[2] = 'I';
-        }
-        else if (idxf->metric_type == METRIC_L2) {
-            name[2] = '2';
-        }
-        else {
-            FAISS_THROW_FMT ("unsupported metric: %d",
-                    (int)idxf->metric_type);
-        }
+        char name[5] = {'i', 'F', 'l', Cname, 0};
         uint32_t h = fourcc (name);
         WRITE1 (h);
         write_index_header (idx, f);
@@ -355,7 +347,30 @@ bool try_write_index_flat_T (const Index* idx, IOWriter* f) {
     return try_write_index_flat_T<float, 'A'> (idx, f) ||
         try_write_index_flat_T<bfp16_t, 'B'> (idx, f);
 }
+#endif
 
+#ifdef OPT_IVFFLAT_DTYPE
+template <typename T, char Cname>
+bool try_write_index_ivfflat_T (const Index* idx, IOWriter* f) {
+    if(const IndexIVFFlat_T<T>* ivfl =
+            dynamic_cast<const IndexIVFFlat_T<T>*> (idx)) {
+        char name[5] = {'v', 'F', 'l', Cname, 0};
+        uint32_t h = fourcc (name);
+        WRITE1 (h);
+        write_ivf_header (ivfl, f);
+        write_InvertedLists (ivfl->invlists, f);
+        for (size_t i = 0; i < ivfl->nlist; i++) {
+            WRITEVECTOR (ivfl->norms [i]);
+        }
+        return true;
+    }
+    return false;
+}
+
+bool try_write_index_ivfflat_T (const Index* idx, IOWriter* f) {
+    return try_write_index_ivfflat_T<float, 'A'> (idx, f) ||
+        try_write_index_ivfflat_T<bfp16_t, 'B'> (idx, f);
+}
 #endif
 
 void write_index (const Index *idx, IOWriter *f) {
@@ -368,6 +383,9 @@ void write_index (const Index *idx, IOWriter *f) {
         WRITEVECTOR (idxf->xb);
 #ifdef OPT_FLAT_DTYPE
     } else if (try_write_index_flat_T (idx, f)) {
+#endif
+#ifdef OPT_IVFFLAT_DTYPE
+    } else if (try_write_index_ivfflat_T (idx, f)) {
 #endif
     } else if(const IndexLSH * idxl = dynamic_cast<const IndexLSH *> (idx)) {
         uint32_t h = fourcc ("IxHe");
