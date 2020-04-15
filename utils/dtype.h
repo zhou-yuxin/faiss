@@ -130,11 +130,15 @@ inline __m256 _mm256_loadu_ps_T (const float* x) {
 }
 
 inline __m256 _mm256_loadu_ps_T (const bfp16_t* x) {
-    return _mm256_castsi256_ps (
-            _mm256_unpacklo_epi16 (_mm256_setzero_si256 (),
-            _mm256_insertf128_si256 (_mm256_castsi128_si256 (
-            _mm_loadl_epi64 ((const __m128i*)x)),
-            _mm_loadl_epi64 ((const __m128i*)(x + 4)), 1)));
+    return
+        _mm256_castsi256_ps (
+            _mm256_unpacklo_epi16 (
+                _mm256_setzero_si256 (),
+                _mm256_insertf128_si256 (
+                    _mm256_castsi128_si256 (
+                        _mm_loadl_epi64 ((const __m128i*)x)),
+                    _mm_loadl_epi64 ((const __m128i*)(x + 4)),
+                    1)));
 }
 
 template <typename T>
@@ -164,7 +168,73 @@ inline float vec_IP_256b_T (const bfp16_t* x, const bfp16_t* y,
 
 #endif
 
-#if defined (USE_SIMD_256)
+#if defined (__AVX512F__) && defined(__AVX512DQ__) && defined(__AVX512BW__) \
+        && defined(__AVX512VL__)
+
+#ifndef USE_SIMD_256
+#error "SIMD 512 must have SIMD 256 enabled"
+#endif
+#define USE_SIMD_512
+
+inline __m512 _mm512_loadu_ps_T (const float* x) {
+    return _mm512_loadu_ps (x);
+}
+
+inline __m512 _mm512_loadu_ps_T (const bfp16_t* x) {
+    return
+    _mm512_castsi512_ps (
+        _mm512_unpacklo_epi16 (
+            _mm512_setzero_si512 (),
+            _mm512_inserti64x4 (
+                _mm512_castsi256_si512 (
+                    _mm256_inserti32x4 (
+                        _mm256_castsi128_si256 (
+                            _mm_loadl_epi64 ((const __m128i*)x)),
+                        _mm_loadl_epi64 ((const __m128i*)(x + 4)),
+                        1)),
+                _mm256_inserti32x4 (
+                    _mm256_castsi128_si256 (
+                        _mm_loadl_epi64 ((const __m128i*)(x + 8))),
+                    _mm_loadl_epi64 ((const __m128i*)(x + 12)),
+                    1),
+                1)));
+}
+
+template <typename T>
+float vec_IP_fp_512b_T (const T* x, const T* y, size_t d,
+        __m512 msum = _mm512_setzero_ps ()) {
+    while (d >= 16) {
+        __m512 mx = _mm512_loadu_ps_T (x);
+        x += 16;
+        __m512 my = _mm512_loadu_ps_T (y);
+        y += 16;
+        msum = _mm512_add_ps (msum, _mm512_mul_ps (mx, my));
+        d -= 16;
+    }
+    __m256 msum2 = _mm512_extractf32x8_ps (msum, 1);
+    msum2 = _mm256_add_ps (msum2, _mm512_extractf32x8_ps (msum, 0));
+    return vec_IP_fp_256b_T (x, y, d, msum2);
+}
+
+inline float vec_IP_512b_T (const float* x, const float* y, size_t d) {
+    return vec_IP_fp_512b_T (x, y, d);
+}
+
+inline float vec_IP_512b_T (const bfp16_t* x, const bfp16_t* y,
+        size_t d) {
+    return vec_IP_fp_512b_T (x, y, d);
+}
+
+#endif
+
+#if defined (USE_SIMD_512)
+
+template <typename T>
+inline float vec_IP_T (const T* x, const T* y, size_t d) {
+    return vec_IP_512b_T (x, y, d);
+}
+
+#elif defined (USE_SIMD_256)
 
 template <typename T>
 inline float vec_IP_T (const T* x, const T* y, size_t d) {
