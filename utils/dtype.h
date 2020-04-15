@@ -2,10 +2,13 @@
 
 #ifdef OPT_DTYPE_UTILS
 
+#include <cblas.h>
 #include <stdlib.h>
 #include <immintrin.h>
 
 #include <faiss/utils/Heap.h>
+
+#define BLAS_THRESHOLD 4
 
 namespace faiss {
 
@@ -53,7 +56,7 @@ struct Converter_T {
 
 };
 
-//============================Inner Product Function==========================
+//==============================Distance Function=============================
 
 template <typename Tdis, typename T>
 Tdis vec_IP_ref_T (const T* x, const T* y, size_t d, Tdis sum = 0) {
@@ -70,6 +73,24 @@ inline float vec_IP_ref_T (const float* x, const float* y, size_t d) {
 inline float vec_IP_ref_T (const bfp16_t* x, const bfp16_t* y,
         size_t d) {
     return vec_IP_ref_T<float> (x, y, d);
+}
+
+template <typename Tdis, typename T>
+Tdis vec_L2sqr_ref_T (const T* x, const T* y, size_t d, Tdis sum = 0) {
+    for (size_t i = 0; i < d; i++) {
+        Tdis diff = static_cast<Tdis> (x[i]) - static_cast<Tdis> (y[i]);
+        sum += diff * diff;
+    }
+    return sum;
+}
+
+inline float vec_L2sqr_ref_T (const float* x, const float* y, size_t d) {
+    return vec_L2sqr_ref_T<float> (x, y, d);
+}
+
+inline float vec_L2sqr_ref_T (const bfp16_t* x, const bfp16_t* y,
+        size_t d) {
+    return vec_L2sqr_ref_T<float> (x, y, d);
 }
 
 #ifdef __SSE4_1__
@@ -100,10 +121,7 @@ float vec_IP_fp_128b_T (const T* x, const T* y, size_t d,
     msum = _mm_hadd_ps (msum, msum);
     msum = _mm_hadd_ps (msum, msum);
     float sum = _mm_cvtss_f32 (msum);
-    if (d > 0) {
-        sum += vec_IP_ref_T<float> (x, y, d);
-    }
-    return sum;
+    return d == 0 ? sum : vec_IP_ref_T<float> (x, y, d, sum);
 }
 
 inline float vec_IP_128b_T (const float* x, const float* y, size_t d) {
@@ -113,6 +131,33 @@ inline float vec_IP_128b_T (const float* x, const float* y, size_t d) {
 inline float vec_IP_128b_T (const bfp16_t* x, const bfp16_t* y,
         size_t d) {
     return vec_IP_fp_128b_T (x, y, d);
+}
+
+template <typename T>
+float vec_L2sqr_fp_128b_T (const T* x, const T* y, size_t d,
+        __m128 msum = _mm_setzero_ps ()) {
+    while (d >= 4) {
+        __m128 mx = _mm_loadu_ps_T (x);
+        x += 4;
+        __m128 my = _mm_loadu_ps_T (y);
+        y += 4;
+        __m128 mdiff = _mm_sub_ps (mx, my);
+        msum = _mm_add_ps (msum, _mm_mul_ps (mdiff, mdiff));
+        d -= 4;
+    }
+    msum = _mm_hadd_ps (msum, msum);
+    msum = _mm_hadd_ps (msum, msum);
+    float sum = _mm_cvtss_f32 (msum);
+    return d == 0 ? sum : vec_L2sqr_ref_T<float> (x, y, d, sum);
+}
+
+inline float vec_L2sqr_128b_T (const float* x, const float* y, size_t d) {
+    return vec_L2sqr_fp_128b_T (x, y, d);
+}
+
+inline float vec_L2sqr_128b_T (const bfp16_t* x, const bfp16_t* y,
+        size_t d) {
+    return vec_L2sqr_fp_128b_T (x, y, d);
 }
 
 #endif
@@ -164,6 +209,32 @@ inline float vec_IP_256b_T (const float* x, const float* y, size_t d) {
 inline float vec_IP_256b_T (const bfp16_t* x, const bfp16_t* y,
         size_t d) {
     return vec_IP_fp_256b_T (x, y, d);
+}
+
+template <typename T>
+float vec_L2sqr_fp_256b_T (const T* x, const T* y, size_t d,
+        __m256 msum = _mm256_setzero_ps ()) {
+    while (d >= 8) {
+        __m256 mx = _mm256_loadu_ps_T (x);
+        x += 8;
+        __m256 my = _mm256_loadu_ps_T (y);
+        y += 8;
+        __m256 mdiff = _mm256_sub_ps (mx, my);
+        msum = _mm256_add_ps (msum, _mm256_mul_ps (mdiff, mdiff));
+        d -= 8;
+    }
+    __m128 msum2 = _mm256_extractf128_ps (msum, 1);
+    msum2 = _mm_add_ps (msum2, _mm256_extractf128_ps (msum, 0));
+    return vec_L2sqr_fp_128b_T (x, y, d, msum2);
+}
+
+inline float vec_L2sqr_256b_T (const float* x, const float* y, size_t d) {
+    return vec_L2sqr_fp_256b_T (x, y, d);
+}
+
+inline float vec_L2sqr_256b_T (const bfp16_t* x, const bfp16_t* y,
+        size_t d) {
+    return vec_L2sqr_fp_256b_T (x, y, d);
 }
 
 #endif
@@ -225,6 +296,32 @@ inline float vec_IP_512b_T (const bfp16_t* x, const bfp16_t* y,
     return vec_IP_fp_512b_T (x, y, d);
 }
 
+template <typename T>
+float vec_L2sqr_fp_512b_T (const T* x, const T* y, size_t d,
+        __m512 msum = _mm512_setzero_ps ()) {
+    while (d >= 16) {
+        __m512 mx = _mm512_loadu_ps_T (x);
+        x += 16;
+        __m512 my = _mm512_loadu_ps_T (y);
+        y += 16;
+        __m512 mdiff = _mm512_sub_ps (mx, my);
+        msum = _mm512_add_ps (msum, _mm512_mul_ps (mdiff, mdiff));
+        d -= 16;
+    }
+    __m256 msum2 = _mm512_extractf32x8_ps (msum, 1);
+    msum2 = _mm256_add_ps (msum2, _mm512_extractf32x8_ps (msum, 0));
+    return vec_L2sqr_fp_256b_T (x, y, d, msum2);
+}
+
+inline float vec_L2sqr_512b_T (const float* x, const float* y, size_t d) {
+    return vec_L2sqr_fp_512b_T (x, y, d);
+}
+
+inline float vec_L2sqr_512b_T (const bfp16_t* x, const bfp16_t* y,
+        size_t d) {
+    return vec_L2sqr_fp_512b_T (x, y, d);
+}
+
 #endif
 
 #if defined (USE_SIMD_512)
@@ -234,11 +331,21 @@ inline float vec_IP_T (const T* x, const T* y, size_t d) {
     return vec_IP_512b_T (x, y, d);
 }
 
+template <typename T>
+inline float vec_L2sqr_T (const T* x, const T* y, size_t d) {
+    return vec_L2sqr_512b_T (x, y, d);
+}
+
 #elif defined (USE_SIMD_256)
 
 template <typename T>
 inline float vec_IP_T (const T* x, const T* y, size_t d) {
     return vec_IP_256b_T (x, y, d);
+}
+
+template <typename T>
+inline float vec_L2sqr_T (const T* x, const T* y, size_t d) {
+    return vec_L2sqr_256b_T (x, y, d);
 }
 
 #elif defined (USE_SIMD_128)
@@ -248,6 +355,11 @@ inline float vec_IP_T (const T* x, const T* y, size_t d) {
     return vec_IP_128b_T (x, y, d);
 }
 
+template <typename T>
+inline float vec_L2sqr_T (const T* x, const T* y, size_t d) {
+    return vec_L2sqr_128b_T (x, y, d);
+}
+
 #else
 
 template <typename T>
@@ -255,12 +367,17 @@ inline float vec_IP_T (const T* x, const T* y, size_t d) {
     return vec_IP_ref_T (x, y, d);
 }
 
+template <typename T>
+inline float vec_L2sqr_T (const T* x, const T* y, size_t d) {
+    return vec_L2sqr_ref_T (x, y, d);
+}
+
 #endif
 
-//============================K Nearest Neighbor Routine======================
+//=================================KNN Routine================================
 
 template <typename T, typename D>
-void knn_less_better_T (const T* x, const T* y, size_t d,
+void knn_less_better_alone_T (const T* x, const T* y, size_t d,
         size_t nx, size_t ny, float_maxheap_array_t* res, D& distance) {
     size_t k = res->k;
     size_t check_period = InterruptCallback::get_period_hint (ny * d);
@@ -289,7 +406,7 @@ void knn_less_better_T (const T* x, const T* y, size_t d,
 }
 
 template <typename T, typename D>
-void knn_greater_better_T (const T* x, const T* y, size_t d,
+void knn_greater_better_alone_T (const T* x, const T* y, size_t d,
         size_t nx, size_t ny, float_minheap_array_t* res, D& distance) {
     size_t k = res->k;
     size_t check_period = InterruptCallback::get_period_hint (ny * d);
@@ -318,7 +435,7 @@ void knn_greater_better_T (const T* x, const T* y, size_t d,
 }
 
 template <typename T>
-inline void knn_inner_product_T (const T* x, const T* y, size_t d,
+inline void knn_inner_product_alone_T (const T* x, const T* y, size_t d,
         size_t nx, size_t ny, float_minheap_array_t* res) {
 
     struct IP {
@@ -329,16 +446,32 @@ inline void knn_inner_product_T (const T* x, const T* y, size_t d,
         }
 
     }
-    ip;
-    knn_greater_better_T (x, y, d, nx, ny, res, ip);
+    distance;
+    knn_greater_better_alone_T (x, y, d, nx, ny, res, distance);
 }
 
 template <typename T>
-inline void knn_L2sqr_T (const T* x, const T* y, size_t d,
+inline void knn_L2sqr_alone_T (const T* x, const T* y, size_t d,
+        size_t nx, size_t ny, float_maxheap_array_t* res) {
+
+    struct L2Sqr {
+
+        inline float operator () (size_t /*ix*/, size_t /*jy*/,
+                const T* xi, const T* yj, size_t d) const {
+            return vec_L2sqr_T (xi, yj, d);
+        }
+
+    }
+    distance;
+    knn_less_better_alone_T (x, y, d, nx, ny, res, distance);
+}
+
+template <typename T>
+inline void knn_L2sqr_expand_alone_T (const T* x, const T* y, size_t d,
         size_t nx, size_t ny, float_maxheap_array_t* res,
         const float* y_norm) {
 
-    struct L2Sqr {
+    struct L2SqrExpand {
 
         const float* y_norm_sqr;
 
@@ -348,31 +481,99 @@ inline void knn_L2sqr_T (const T* x, const T* y, size_t d,
         }
 
     }
-    l2sqr = {
+    distance = {
         .y_norm_sqr = y_norm,
     };
-    knn_less_better_T (x, y, d, nx, ny, res, l2sqr);
+    knn_less_better_alone_T (x, y, d, nx, ny, res, distance);
 }
 
 template <typename T>
-inline void knn_cosine_T (const T* x, const T* y, size_t d,
-        size_t nx, size_t ny, float_minheap_array_t* res,
+inline void knn_inner_product_batch_T (const T* x, const T* y, size_t d,
+        size_t nx, size_t ny, float_minheap_array_t* res) {
+    knn_inner_product_alone_T (x, y, d, nx, ny, res);
+}
+
+template <typename T>
+inline void knn_L2sqr_batch_T (const T* x, const T* y, size_t d,
+        size_t nx, size_t ny, float_maxheap_array_t* res) {
+    knn_L2sqr_alone_T (x, y, d, nx, ny, res);
+}
+
+template <typename T>
+inline void knn_L2sqr_expand_batch_T (const T* x, const T* y, size_t d,
+        size_t nx, size_t ny, float_maxheap_array_t* res,
         const float* y_norm) {
+    knn_L2sqr_expand_alone_T (x, y, d, nx, ny, res, y_norm);
+}
 
-    struct Cosine {
-
-        const float* y_norm_recip;
-
-        inline float operator () (size_t /*ix*/, size_t jy,
-                const T* xi, const T* yj, size_t d) const {
-            return vec_IP_T (xi, yj, d) * y_norm_recip[jy];
-        }
-
+inline void knn_inner_product_batch_T (const float* x, const float* y,
+        size_t d, size_t nx, size_t ny, float_minheap_array_t* res) {
+    res->heapify ();
+    if (nx == 0 || ny == 0) {
+        return;
     }
-    cosine = {
-        .y_norm_recip = y_norm,
-    };
-    knn_greater_better_T (x, y, d, nx, ny, res, cosine);
+    float* distances = new float [nx * ny];
+    cblas_sgemm (CblasRowMajor, CblasNoTrans, CblasTrans, nx, ny, d,
+            1.0f, x, d, y, d, 0.0f, distances, ny);
+    res->addn (ny, distances, 0, 0, nx);
+    delete[] distances;
+    InterruptCallback::check ();
+    res->reorder ();
+}
+
+inline void knn_L2sqr_expand_batch_T (const float* x, const float* y,
+        size_t d, size_t nx, size_t ny, float_maxheap_array_t* res,
+        const float* y_norm) {
+    res->heapify ();
+    if (nx == 0 || ny == 0) {
+        return;
+    }
+    float* distances = new float [nx * ny];
+    float* distances_i = distances;
+    for (size_t i = 0; i < nx; i++) {
+        cblas_scopy (ny, y_norm, 1, distances_i, 1);
+        distances_i += ny;
+    }
+    cblas_sgemm (CblasRowMajor, CblasNoTrans, CblasTrans, nx, ny, d,
+            -2.0f, x, d, y, d, 1.0f, distances, ny);
+    res->addn (ny, distances, 0, 0, nx);
+    delete[] distances;
+    InterruptCallback::check ();
+    res->reorder ();
+}
+
+template <typename T>
+inline void knn_inner_product_T (const T* x, const T* y, size_t d,
+        size_t nx, size_t ny, float_minheap_array_t* res) {
+    if (nx < BLAS_THRESHOLD) {
+        knn_inner_product_alone_T (x, y, d, nx, ny, res);
+    }
+    else {
+        knn_inner_product_batch_T (x, y, d, nx, ny, res);
+    }
+}
+
+template <typename T>
+inline void knn_L2sqr_T (const T* x, const T* y, size_t d,
+        size_t nx, size_t ny, float_maxheap_array_t* res) {
+    if (nx < BLAS_THRESHOLD) {
+        knn_L2sqr_alone_T (x, y, d, nx, ny, res);
+    }
+    else {
+        knn_L2sqr_batch_T (x, y, d, nx, ny, res);
+    }
+}
+
+template <typename T>
+inline void knn_L2sqr_expand_T (const T* x, const T* y, size_t d,
+        size_t nx, size_t ny, float_maxheap_array_t* res,
+        const float* y_norm) {
+    if (nx < BLAS_THRESHOLD) {
+        knn_L2sqr_expand_alone_T (x, y, d, nx, ny, res, y_norm);
+    }
+    else {
+        knn_L2sqr_expand_batch_T (x, y, d, nx, ny, res, y_norm);
+    }
 }
 
 }

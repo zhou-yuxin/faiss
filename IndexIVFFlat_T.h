@@ -55,7 +55,7 @@ struct IndexIVFFlat_T: IndexIVF {
                 Converter_T<T> converter (d, yi);
                 offset = invlists->add_entry (list_no, id,
                         (const uint8_t*)converter.x);
-                if (metric_type == METRIC_L2) {
+                if (metric_type == METRIC_L2_EXPAND) {
                     norms [list_no].push_back (vec_IP_T (yi, yi, d));
                 }
                 else if (metric_type == METRIC_COSINE) {
@@ -91,12 +91,27 @@ struct IndexIVFFlat_T: IndexIVF {
                     return vec_IP_T (x, yj, d);
                 }
             }
-            *ip = new IP;
+            *distance = new IP;
             return new IVFFlatScanner_T<IP, CMin<float, int64_t>>
-                    (d, store_pairs, ip);
+                    (d, store_pairs, distance);
         } else if (metric_type == METRIC_L2) {
 
             struct L2Sqr {
+
+                inline float operator () (size_t /*ilist*/, size_t /*jy*/,
+                        const T* x, const T* yj, size_t d) const {
+                    return vec_L2sqr_T (x, y, d);
+                }
+
+            }
+            *distance = new L2Sqr {
+                .y_norm_sqr = norms.data(),
+            };
+            return new IVFFlatScanner_T<L2Sqr, CMax<float, int64_t>>
+                    (d, store_pairs, distance);
+        } else if (metric_type == METRIC_L2_EXPAND) {
+
+            struct L2SqrExpand {
 
                 const std::vector<float>* y_norm_sqr;
 
@@ -106,11 +121,11 @@ struct IndexIVFFlat_T: IndexIVF {
                 }
 
             }
-            *l2sqr = new L2Sqr {
+            *distance = new L2SqrExpand {
                 .y_norm_sqr = norms.data(),
             };
-            return new IVFFlatScanner_T<L2Sqr, CMax<float, int64_t>>
-                    (d, store_pairs, l2sqr);
+            return new IVFFlatScanner_T<L2SqrExpand, CMax<float, int64_t>>
+                    (d, store_pairs, distance);
         } else if (metric_type == METRIC_COSINE) {
 
             struct Cosine {
@@ -123,11 +138,11 @@ struct IndexIVFFlat_T: IndexIVF {
                 }
 
             }
-            *cosine = new Cosine {
+            *distance = new Cosine {
                 .y_norm_recip = norms.data(),
             };
             return new IVFFlatScanner_T<Cosine, CMin<float, int64_t>>
-                    (d, store_pairs, cosine);
+                    (d, store_pairs, distance);
         } else {
             FAISS_THROW_FMT("unsupported metric type: %d", (int)metric_type);
         }

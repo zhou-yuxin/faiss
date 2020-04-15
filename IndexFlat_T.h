@@ -27,17 +27,31 @@ struct IndexFlat_T: Index {
 
     void add (idx_t n, const float* y) override {
         const float* yi = y;
-        for (size_t i = 0; i < n; i++) {
-            for (size_t j = 0; j < d; j++) {
-                base.push_back (static_cast<T> (yi[j]));
+        if (metric_type == METRIC_L2_EXPAND) {
+            for (size_t i = 0; i < n; i++) {
+                for (size_t j = 0; j < d; j++) {
+                    base.push_back (static_cast<T> (yi[j]));
+                }
+                norms.push_back (vec_IP_T (yi, yi, d));
+                yi += d;
             }
-            if (metric_type == METRIC_L2) {
-                norms.push_back (vec_IP_T (yi, yi, d));                    
+        }
+        else if (metric_type == METRIC_PROJECTION) {
+            for (size_t i = 0; i < n; i++) {
+                float rnorm = 1.0f / std::sqrt (vec_IP_T (yi, yi, d));
+                for (size_t j = 0; j < d; j++) {
+                    base.push_back (static_cast<T> (yi[j] * rnorm));
+                }
+                yi += d;
             }
-            else if (metric_type == METRIC_COSINE) {
-                norms.push_back (1.0f / std::sqrt (vec_IP_T (yi, yi, d)));
+        }
+        else {
+            for (size_t i = 0; i < n; i++) {
+                for (size_t j = 0; j < d; j++) {
+                    base.push_back (static_cast<T> (yi[j]));
+                }
+                yi += d;
             }
-            yi += d;
         }
         ntotal += n;
     }
@@ -51,7 +65,8 @@ struct IndexFlat_T: Index {
     void search (idx_t n, const float* x,
             idx_t k, float* distances, idx_t* labels) const override {
         Converter_T<T> converter (n * d, x);
-        if (metric_type == METRIC_INNER_PRODUCT) {
+        if (metric_type == METRIC_INNER_PRODUCT ||
+                metric_type == METRIC_PROJECTION) {
             float_minheap_array_t res = {
                 size_t(n), size_t(k), labels, distances};
             knn_inner_product_T (converter.x, base.data (), d, n,
@@ -59,12 +74,11 @@ struct IndexFlat_T: Index {
         } else if (metric_type == METRIC_L2) {
             float_maxheap_array_t res = {
                 size_t(n), size_t(k), labels, distances};
-            knn_L2sqr_T (converter.x, base.data(), d, n, ntotal,
-                    &res, norms.data());
-        } else if (metric_type == METRIC_COSINE) {
-            float_minheap_array_t res = {
+            knn_L2sqr_T (converter.x, base.data(), d, n, ntotal, &res);
+        } else if (metric_type == METRIC_L2_EXPAND) {
+            float_maxheap_array_t res = {
                 size_t(n), size_t(k), labels, distances};
-            knn_cosine_T (converter.x, base.data(), d, n, ntotal,
+            knn_L2sqr_expand_T (converter.x, base.data(), d, n, ntotal,
                     &res, norms.data());
         }
         else {

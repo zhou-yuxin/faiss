@@ -109,7 +109,9 @@ IndexIVF* build_index_ivfflat_T (const char* dtype, Index* quantizer,
 Index *index_factory (int d, const char *description_in, MetricType metric)
 {
     FAISS_THROW_IF_NOT(metric == METRIC_L2 ||
-                       metric == METRIC_INNER_PRODUCT);
+                       metric == METRIC_INNER_PRODUCT ||
+                       metric == METRIC_L2_EXPAND ||
+                       metric == METRIC_PROJECTION);
     VTChain vts;
     Index *coarse_quantizer = nullptr;
     Index *index = nullptr;
