@@ -39,7 +39,8 @@ struct IndexIVFFlat_T: IndexIVF {
         ScopeDeleter<int64_t> del;
         if (precomputed_idx) {
             idx = precomputed_idx;
-        } else {
+        }
+        else {
             int64_t* idx0 = new int64_t[n];
             del.set (idx0);
             quantizer->assign (n, y, idx0);
@@ -52,18 +53,27 @@ struct IndexIVFFlat_T: IndexIVF {
             size_t offset;
             if (list_no >= 0) {
                 const float* yi = y + i * d;
-                Converter_T<T> converter (d, yi);
-                offset = invlists->add_entry (list_no, id,
-                        (const uint8_t*)converter.x);
-                if (metric_type == METRIC_L2_EXPAND) {
-                    norms [list_no].push_back (vec_IP_T (yi, yi, d));
+                if (metric_type == METRIC_PROJECTION) {
+                    float rnorm = 1.0f / std::sqrt (vec_IP_T (yi, yi, d));
+                    T* scaled_y = new T [d];
+                    for (size_t j = 0; j < d; j++) {
+                        scaled_y [j] = static_cast<T> (yi [j] * rnorm);
+                    }
+                    offset = invlists->add_entry (list_no, id,
+                            (const uint8_t*)scaled_y);
+                    delete[] scaled_y;
                 }
-                else if (metric_type == METRIC_COSINE) {
-                    norms [list_no].push_back (1.0f / std::sqrt (
-                            vec_IP_T (yi, yi, d)));
+                else {
+                    Converter_T<T> converter (d, yi);
+                    offset = invlists->add_entry (list_no, id,
+                            (const uint8_t*)converter.x);
+                    if (metric_type == METRIC_L2_EXPAND) {
+                        norms [list_no].push_back (vec_IP_T (yi, yi, d));
+                    }
                 }
                 n_add++;
-            } else {
+            }
+            else {
                 offset = 0;
             }
             direct_map.add_single_id (id, list_no, offset);
@@ -82,128 +92,21 @@ struct IndexIVFFlat_T: IndexIVF {
 
     InvertedListScanner *get_InvertedListScanner (bool store_pairs)
             const override {
-        if (metric_type == METRIC_INNER_PRODUCT) {
-
-            struct IP {
-
-                inline float operator () (size_t /*ilist*/, size_t /*jy*/,
-                        const T* x, const T* yj, size_t d) const {
-                    return vec_IP_T (x, yj, d);
-                }
-            }
-            *distance = new IP;
-            return new IVFFlatScanner_T<IP, CMin<float, int64_t>>
-                    (d, store_pairs, distance);
-        } else if (metric_type == METRIC_L2) {
-
-            struct L2Sqr {
-
-                inline float operator () (size_t /*ilist*/, size_t /*jy*/,
-                        const T* x, const T* yj, size_t d) const {
-                    return vec_L2sqr_T (x, y, d);
-                }
-
-            }
-            *distance = new L2Sqr {
-                .y_norm_sqr = norms.data(),
-            };
-            return new IVFFlatScanner_T<L2Sqr, CMax<float, int64_t>>
-                    (d, store_pairs, distance);
-        } else if (metric_type == METRIC_L2_EXPAND) {
-
-            struct L2SqrExpand {
-
-                const std::vector<float>* y_norm_sqr;
-
-                inline float operator () (size_t ilist, size_t jy,
-                        const T* x, const T* yj, size_t d) const {
-                    return y_norm_sqr [ilist] [jy] - 2 * vec_IP_T (x, yj, d);
-                }
-
-            }
-            *distance = new L2SqrExpand {
-                .y_norm_sqr = norms.data(),
-            };
-            return new IVFFlatScanner_T<L2SqrExpand, CMax<float, int64_t>>
-                    (d, store_pairs, distance);
-        } else if (metric_type == METRIC_COSINE) {
-
-            struct Cosine {
-
-                const std::vector<float>* y_norm_recip;
-
-                inline float operator () (size_t ilist, size_t jy,
-                        const T* x, const T* yj, size_t d) const {
-                    return vec_IP_T (x, yj, d) * y_norm_recip [ilist] [jy];
-                }
-
-            }
-            *distance = new Cosine {
-                .y_norm_recip = norms.data(),
-            };
-            return new IVFFlatScanner_T<Cosine, CMin<float, int64_t>>
-                    (d, store_pairs, distance);
-        } else {
+        if (metric_type == METRIC_INNER_PRODUCT ||
+                metric_type == METRIC_PROJECTION) {
+            return get_IP_scanner_T<T> (d, store_pairs);
+        }
+        else if (metric_type == METRIC_L2) {
+            return get_L2Sqr_scanner_T<T> (d, store_pairs);
+        }
+        else if (metric_type == METRIC_L2_EXPAND) {
+            return get_L2Sqr_expand_scanner_T<T> (d, store_pairs,
+                    norms.data());
+        }
+        else {
             FAISS_THROW_FMT("unsupported metric type: %d", (int)metric_type);
         }
     }
-
-private:
-    template <typename Dis, typename Comp>
-    struct IVFFlatScanner_T: InvertedListScanner {
-        size_t d;
-        size_t code_size;
-        bool store_pairs;
-        const T* converted_x;
-        idx_t list_no;
-        Dis* distance;
-
-        IVFFlatScanner_T (size_t d, bool store_pairs, Dis* distance):
-                d (d), code_size (sizeof(T) * d), store_pairs (store_pairs),
-                converted_x(nullptr), list_no(-1), distance (distance) {
-        }
-
-        virtual ~IVFFlatScanner_T () {
-            if (converted_x) {
-                del_converted_x_T (d, converted_x);
-            }
-            delete distance;
-        }
-
-        void set_query (const float* query) override {
-            if (converted_x) {
-                del_converted_x_T (d, converted_x);
-            }
-            converted_x = convert_x_T<T> (d, query);
-        }
-
-        void set_list (idx_t lidx, float) override {
-            list_no = lidx;
-        }
-
-        float distance_to_code (const uint8_t*) const override {
-            FAISS_THROW_MSG ("not implemented");
-        }
-
-        size_t scan_codes (size_t list_size, const uint8_t* codes,
-                const idx_t* ids, float* simi, idx_t* idxi,
-                size_t k) const override {
-            size_t nup = 0;
-            for (size_t i = 0; i < list_size; i++) {
-                float dis = (*distance) (list_no, i,
-                        converted_x, (const T*)codes, d);
-                codes += code_size;
-                if (Comp::cmp (simi[0], dis)) {
-                    heap_pop<Comp> (k, simi, idxi);
-                    int64_t id = store_pairs ? lo_build (list_no, i) : ids[i];
-                    heap_push<Comp> (k, simi, idxi, dis, id);
-                    nup++;
-                }
-            }
-            return nup;
-        }
-
-    };
 
 };
 

@@ -1,14 +1,14 @@
 #pragma once
 
-#ifdef OPT_DTYPE_UTILS
-
 #include <cblas.h>
 #include <stdlib.h>
 #include <immintrin.h>
 
+#include <faiss/IndexIVF.h>
+
 #include <faiss/utils/Heap.h>
 
-#define BLAS_THRESHOLD 4
+#ifdef OPT_DTYPE_UTILS
 
 namespace faiss {
 
@@ -76,7 +76,7 @@ inline float vec_IP_ref_T (const bfp16_t* x, const bfp16_t* y,
 }
 
 template <typename Tdis, typename T>
-Tdis vec_L2sqr_ref_T (const T* x, const T* y, size_t d, Tdis sum = 0) {
+Tdis vec_L2Sqr_ref_T (const T* x, const T* y, size_t d, Tdis sum = 0) {
     for (size_t i = 0; i < d; i++) {
         Tdis diff = static_cast<Tdis> (x[i]) - static_cast<Tdis> (y[i]);
         sum += diff * diff;
@@ -84,13 +84,13 @@ Tdis vec_L2sqr_ref_T (const T* x, const T* y, size_t d, Tdis sum = 0) {
     return sum;
 }
 
-inline float vec_L2sqr_ref_T (const float* x, const float* y, size_t d) {
-    return vec_L2sqr_ref_T<float> (x, y, d);
+inline float vec_L2Sqr_ref_T (const float* x, const float* y, size_t d) {
+    return vec_L2Sqr_ref_T<float> (x, y, d);
 }
 
-inline float vec_L2sqr_ref_T (const bfp16_t* x, const bfp16_t* y,
+inline float vec_L2Sqr_ref_T (const bfp16_t* x, const bfp16_t* y,
         size_t d) {
-    return vec_L2sqr_ref_T<float> (x, y, d);
+    return vec_L2Sqr_ref_T<float> (x, y, d);
 }
 
 #ifdef __SSE4_1__
@@ -134,7 +134,7 @@ inline float vec_IP_128b_T (const bfp16_t* x, const bfp16_t* y,
 }
 
 template <typename T>
-float vec_L2sqr_fp_128b_T (const T* x, const T* y, size_t d,
+float vec_L2Sqr_fp_128b_T (const T* x, const T* y, size_t d,
         __m128 msum = _mm_setzero_ps ()) {
     while (d >= 4) {
         __m128 mx = _mm_loadu_ps_T (x);
@@ -148,16 +148,16 @@ float vec_L2sqr_fp_128b_T (const T* x, const T* y, size_t d,
     msum = _mm_hadd_ps (msum, msum);
     msum = _mm_hadd_ps (msum, msum);
     float sum = _mm_cvtss_f32 (msum);
-    return d == 0 ? sum : vec_L2sqr_ref_T<float> (x, y, d, sum);
+    return d == 0 ? sum : vec_L2Sqr_ref_T<float> (x, y, d, sum);
 }
 
-inline float vec_L2sqr_128b_T (const float* x, const float* y, size_t d) {
-    return vec_L2sqr_fp_128b_T (x, y, d);
+inline float vec_L2Sqr_128b_T (const float* x, const float* y, size_t d) {
+    return vec_L2Sqr_fp_128b_T (x, y, d);
 }
 
-inline float vec_L2sqr_128b_T (const bfp16_t* x, const bfp16_t* y,
+inline float vec_L2Sqr_128b_T (const bfp16_t* x, const bfp16_t* y,
         size_t d) {
-    return vec_L2sqr_fp_128b_T (x, y, d);
+    return vec_L2Sqr_fp_128b_T (x, y, d);
 }
 
 #endif
@@ -212,7 +212,7 @@ inline float vec_IP_256b_T (const bfp16_t* x, const bfp16_t* y,
 }
 
 template <typename T>
-float vec_L2sqr_fp_256b_T (const T* x, const T* y, size_t d,
+float vec_L2Sqr_fp_256b_T (const T* x, const T* y, size_t d,
         __m256 msum = _mm256_setzero_ps ()) {
     while (d >= 8) {
         __m256 mx = _mm256_loadu_ps_T (x);
@@ -225,16 +225,16 @@ float vec_L2sqr_fp_256b_T (const T* x, const T* y, size_t d,
     }
     __m128 msum2 = _mm256_extractf128_ps (msum, 1);
     msum2 = _mm_add_ps (msum2, _mm256_extractf128_ps (msum, 0));
-    return vec_L2sqr_fp_128b_T (x, y, d, msum2);
+    return vec_L2Sqr_fp_128b_T (x, y, d, msum2);
 }
 
-inline float vec_L2sqr_256b_T (const float* x, const float* y, size_t d) {
-    return vec_L2sqr_fp_256b_T (x, y, d);
+inline float vec_L2Sqr_256b_T (const float* x, const float* y, size_t d) {
+    return vec_L2Sqr_fp_256b_T (x, y, d);
 }
 
-inline float vec_L2sqr_256b_T (const bfp16_t* x, const bfp16_t* y,
+inline float vec_L2Sqr_256b_T (const bfp16_t* x, const bfp16_t* y,
         size_t d) {
-    return vec_L2sqr_fp_256b_T (x, y, d);
+    return vec_L2Sqr_fp_256b_T (x, y, d);
 }
 
 #endif
@@ -297,7 +297,7 @@ inline float vec_IP_512b_T (const bfp16_t* x, const bfp16_t* y,
 }
 
 template <typename T>
-float vec_L2sqr_fp_512b_T (const T* x, const T* y, size_t d,
+float vec_L2Sqr_fp_512b_T (const T* x, const T* y, size_t d,
         __m512 msum = _mm512_setzero_ps ()) {
     while (d >= 16) {
         __m512 mx = _mm512_loadu_ps_T (x);
@@ -310,16 +310,16 @@ float vec_L2sqr_fp_512b_T (const T* x, const T* y, size_t d,
     }
     __m256 msum2 = _mm512_extractf32x8_ps (msum, 1);
     msum2 = _mm256_add_ps (msum2, _mm512_extractf32x8_ps (msum, 0));
-    return vec_L2sqr_fp_256b_T (x, y, d, msum2);
+    return vec_L2Sqr_fp_256b_T (x, y, d, msum2);
 }
 
-inline float vec_L2sqr_512b_T (const float* x, const float* y, size_t d) {
-    return vec_L2sqr_fp_512b_T (x, y, d);
+inline float vec_L2Sqr_512b_T (const float* x, const float* y, size_t d) {
+    return vec_L2Sqr_fp_512b_T (x, y, d);
 }
 
-inline float vec_L2sqr_512b_T (const bfp16_t* x, const bfp16_t* y,
+inline float vec_L2Sqr_512b_T (const bfp16_t* x, const bfp16_t* y,
         size_t d) {
-    return vec_L2sqr_fp_512b_T (x, y, d);
+    return vec_L2Sqr_fp_512b_T (x, y, d);
 }
 
 #endif
@@ -332,8 +332,8 @@ inline float vec_IP_T (const T* x, const T* y, size_t d) {
 }
 
 template <typename T>
-inline float vec_L2sqr_T (const T* x, const T* y, size_t d) {
-    return vec_L2sqr_512b_T (x, y, d);
+inline float vec_L2Sqr_T (const T* x, const T* y, size_t d) {
+    return vec_L2Sqr_512b_T (x, y, d);
 }
 
 #elif defined (USE_SIMD_256)
@@ -344,8 +344,8 @@ inline float vec_IP_T (const T* x, const T* y, size_t d) {
 }
 
 template <typename T>
-inline float vec_L2sqr_T (const T* x, const T* y, size_t d) {
-    return vec_L2sqr_256b_T (x, y, d);
+inline float vec_L2Sqr_T (const T* x, const T* y, size_t d) {
+    return vec_L2Sqr_256b_T (x, y, d);
 }
 
 #elif defined (USE_SIMD_128)
@@ -356,8 +356,8 @@ inline float vec_IP_T (const T* x, const T* y, size_t d) {
 }
 
 template <typename T>
-inline float vec_L2sqr_T (const T* x, const T* y, size_t d) {
-    return vec_L2sqr_128b_T (x, y, d);
+inline float vec_L2Sqr_T (const T* x, const T* y, size_t d) {
+    return vec_L2Sqr_128b_T (x, y, d);
 }
 
 #else
@@ -368,11 +368,21 @@ inline float vec_IP_T (const T* x, const T* y, size_t d) {
 }
 
 template <typename T>
-inline float vec_L2sqr_T (const T* x, const T* y, size_t d) {
-    return vec_L2sqr_ref_T (x, y, d);
+inline float vec_L2Sqr_T (const T* x, const T* y, size_t d) {
+    return vec_L2Sqr_ref_T (x, y, d);
 }
 
 #endif
+
+}
+
+#endif
+
+#ifdef OPT_FLAT_DTYPE
+
+#define FLAT_BATCH_THRESHOLD    4
+
+namespace faiss {
 
 //=================================KNN Routine================================
 
@@ -451,14 +461,14 @@ inline void knn_inner_product_alone_T (const T* x, const T* y, size_t d,
 }
 
 template <typename T>
-inline void knn_L2sqr_alone_T (const T* x, const T* y, size_t d,
+inline void knn_L2Sqr_alone_T (const T* x, const T* y, size_t d,
         size_t nx, size_t ny, float_maxheap_array_t* res) {
 
     struct L2Sqr {
 
         inline float operator () (size_t /*ix*/, size_t /*jy*/,
                 const T* xi, const T* yj, size_t d) const {
-            return vec_L2sqr_T (xi, yj, d);
+            return vec_L2Sqr_T (xi, yj, d);
         }
 
     }
@@ -467,7 +477,7 @@ inline void knn_L2sqr_alone_T (const T* x, const T* y, size_t d,
 }
 
 template <typename T>
-inline void knn_L2sqr_expand_alone_T (const T* x, const T* y, size_t d,
+inline void knn_L2Sqr_expand_alone_T (const T* x, const T* y, size_t d,
         size_t nx, size_t ny, float_maxheap_array_t* res,
         const float* y_norm) {
 
@@ -494,58 +504,79 @@ inline void knn_inner_product_batch_T (const T* x, const T* y, size_t d,
 }
 
 template <typename T>
-inline void knn_L2sqr_batch_T (const T* x, const T* y, size_t d,
+inline void knn_L2Sqr_batch_T (const T* x, const T* y, size_t d,
         size_t nx, size_t ny, float_maxheap_array_t* res) {
-    knn_L2sqr_alone_T (x, y, d, nx, ny, res);
+    knn_L2Sqr_alone_T (x, y, d, nx, ny, res);
 }
 
 template <typename T>
-inline void knn_L2sqr_expand_batch_T (const T* x, const T* y, size_t d,
+inline void knn_L2Sqr_expand_batch_T (const T* x, const T* y, size_t d,
         size_t nx, size_t ny, float_maxheap_array_t* res,
         const float* y_norm) {
-    knn_L2sqr_expand_alone_T (x, y, d, nx, ny, res, y_norm);
+    knn_L2Sqr_expand_alone_T (x, y, d, nx, ny, res, y_norm);
+}
+
+template <typename H, typename D>
+void knn_batch_T (const float* x, const float* y,
+        size_t d, size_t nx, size_t ny, H* heap, D& distance) {
+    heap->heapify ();
+    if (nx == 0 || ny == 0) {
+        return;
+    }
+    float* distances = new float [nx * ny];
+    distance (x, y, d, nx, ny, distances);
+    heap->addn (ny, distances, 0, 0, nx);
+    delete[] distances;
+    InterruptCallback::check ();
+    heap->reorder ();
 }
 
 inline void knn_inner_product_batch_T (const float* x, const float* y,
         size_t d, size_t nx, size_t ny, float_minheap_array_t* res) {
-    res->heapify ();
-    if (nx == 0 || ny == 0) {
-        return;
+
+    struct IP {
+
+        inline void operator () (const float* x, const float* y,
+                size_t d, size_t nx, size_t ny, float* distances) const {
+            cblas_sgemm (CblasRowMajor, CblasNoTrans, CblasTrans, nx, ny, d,
+                    1.0f, x, d, y, d, 0.0f, distances, ny);
+        }
+
     }
-    float* distances = new float [nx * ny];
-    cblas_sgemm (CblasRowMajor, CblasNoTrans, CblasTrans, nx, ny, d,
-            1.0f, x, d, y, d, 0.0f, distances, ny);
-    res->addn (ny, distances, 0, 0, nx);
-    delete[] distances;
-    InterruptCallback::check ();
-    res->reorder ();
+    distance;
+    knn_batch_T (x, y, d, nx, ny, res, distance);
 }
 
-inline void knn_L2sqr_expand_batch_T (const float* x, const float* y,
+inline void knn_L2Sqr_expand_batch_T (const float* x, const float* y,
         size_t d, size_t nx, size_t ny, float_maxheap_array_t* res,
         const float* y_norm) {
-    res->heapify ();
-    if (nx == 0 || ny == 0) {
-        return;
+
+    struct L2SqrExpand {
+
+        const float* y_norm;
+
+        inline void operator () (const float* x, const float* y,
+                size_t d, size_t nx, size_t ny, float* distances) const {
+            float* distances_i = distances;
+            size_t step = ny * sizeof(float);
+            for (size_t i = 0; i < nx; i++) {
+                memcpy (distances_i, y_norm, step);
+                distances_i += ny;
+            }
+            cblas_sgemm (CblasRowMajor, CblasNoTrans, CblasTrans, nx, ny, d,
+                    -2.0f, x, d, y, d, 1.0f, distances, ny);
+            }
     }
-    float* distances = new float [nx * ny];
-    float* distances_i = distances;
-    for (size_t i = 0; i < nx; i++) {
-        cblas_scopy (ny, y_norm, 1, distances_i, 1);
-        distances_i += ny;
-    }
-    cblas_sgemm (CblasRowMajor, CblasNoTrans, CblasTrans, nx, ny, d,
-            -2.0f, x, d, y, d, 1.0f, distances, ny);
-    res->addn (ny, distances, 0, 0, nx);
-    delete[] distances;
-    InterruptCallback::check ();
-    res->reorder ();
+    distance = {
+        .y_norm = y_norm,
+    };
+    knn_batch_T (x, y, d, nx, ny, res, distance);
 }
 
 template <typename T>
 inline void knn_inner_product_T (const T* x, const T* y, size_t d,
         size_t nx, size_t ny, float_minheap_array_t* res) {
-    if (nx < BLAS_THRESHOLD) {
+    if (nx < FLAT_BATCH_THRESHOLD) {
         knn_inner_product_alone_T (x, y, d, nx, ny, res);
     }
     else {
@@ -554,25 +585,310 @@ inline void knn_inner_product_T (const T* x, const T* y, size_t d,
 }
 
 template <typename T>
-inline void knn_L2sqr_T (const T* x, const T* y, size_t d,
+inline void knn_L2Sqr_T (const T* x, const T* y, size_t d,
         size_t nx, size_t ny, float_maxheap_array_t* res) {
-    if (nx < BLAS_THRESHOLD) {
-        knn_L2sqr_alone_T (x, y, d, nx, ny, res);
+    if (nx < FLAT_BATCH_THRESHOLD) {
+        knn_L2Sqr_alone_T (x, y, d, nx, ny, res);
     }
     else {
-        knn_L2sqr_batch_T (x, y, d, nx, ny, res);
+        knn_L2Sqr_batch_T (x, y, d, nx, ny, res);
     }
 }
 
 template <typename T>
-inline void knn_L2sqr_expand_T (const T* x, const T* y, size_t d,
+inline void knn_L2Sqr_expand_T (const T* x, const T* y, size_t d,
         size_t nx, size_t ny, float_maxheap_array_t* res,
         const float* y_norm) {
-    if (nx < BLAS_THRESHOLD) {
-        knn_L2sqr_expand_alone_T (x, y, d, nx, ny, res, y_norm);
+    if (nx < FLAT_BATCH_THRESHOLD) {
+        knn_L2Sqr_expand_alone_T (x, y, d, nx, ny, res, y_norm);
     }
     else {
-        knn_L2sqr_expand_batch_T (x, y, d, nx, ny, res, y_norm);
+        knn_L2Sqr_expand_batch_T (x, y, d, nx, ny, res, y_norm);
+    }
+}
+
+}
+
+#endif
+
+#ifdef OPT_IVFFLAT_DTYPE
+
+#define SCANNER_USE_BATCH       false
+
+namespace faiss {
+
+//===========================Inverted List Scanner============================
+
+template <typename T>
+class InvertedListScanner_T : public InvertedListScanner {
+
+    using idx_t = InvertedListScanner::idx_t;
+
+protected:
+    size_t d;
+    size_t code_size;
+    bool store_pairs;
+    const T* converted_x;
+    idx_t list_no;
+
+public:
+    InvertedListScanner_T (size_t d, bool store_pairs):
+            d (d), code_size (sizeof(T) * d), store_pairs (store_pairs),
+            converted_x(nullptr), list_no(-1) {
+    }
+
+    virtual ~InvertedListScanner_T () {
+        if (converted_x) {
+            del_converted_x_T (d, converted_x);
+        }
+    }
+
+    virtual void set_query (const float* query) override {
+        if (converted_x) {
+            del_converted_x_T (d, converted_x);
+        }
+        converted_x = convert_x_T<T> (d, query);
+    }
+
+    virtual void set_list (idx_t lidx, float) override {
+        list_no = lidx;
+    }
+
+    virtual float distance_to_code (const uint8_t*) const override {
+        FAISS_THROW_MSG ("not implemented");
+    }
+
+    virtual size_t scan_codes (size_t list_size, const uint8_t* codes,
+            const idx_t* ids, float* simi, idx_t* idxi, size_t k)
+            const = 0;
+
+};
+
+template <typename T, typename C, typename D>
+class AloneInvertedListScanner_T : public InvertedListScanner_T<T> {
+
+    using idx_t = InvertedListScanner::idx_t;
+    using Scanner = InvertedListScanner_T<T>;
+
+private:
+    D* distance;
+
+public:
+    AloneInvertedListScanner_T (size_t d, bool store_pairs, D* distance):
+            Scanner (d, store_pairs), distance (distance) {
+    }
+
+    virtual ~AloneInvertedListScanner_T () {
+        delete distance;
+    }
+
+    virtual size_t scan_codes (size_t list_size, const uint8_t* codes,
+            const idx_t* ids, float* simi, idx_t* idxi,
+            size_t k) const override {
+        size_t nup = 0;
+        for (size_t i = 0; i < list_size; i++) {
+            float dis = (*distance) (Scanner::list_no, i,Scanner::converted_x,
+                    (const T*)codes, Scanner::d);
+            codes += Scanner::code_size;
+            if (C::cmp (simi[0], dis)) {
+                heap_pop<C> (k, simi, idxi);
+                int64_t id = Scanner::store_pairs ?
+                        lo_build (Scanner::list_no, i) :
+                        ids[i];
+                heap_push<C> (k, simi, idxi, dis, id);
+                nup++;
+            }
+        }
+        return nup;
+    }
+
+};
+
+template <typename T>
+InvertedListScanner* get_IP_alone_scanner_T (size_t d, bool store_pairs) {
+
+    struct IP {
+
+        inline float operator () (size_t /*ilist*/, size_t /*jy*/,
+                const T* x, const T* yj, size_t d) const {
+            return vec_IP_T (x, yj, d);
+        }
+
+    }
+    *distance = new IP;
+    return new AloneInvertedListScanner_T<T, CMin<float, int64_t>, IP> (d,
+            store_pairs, distance);
+}
+
+template <typename T>
+InvertedListScanner* get_L2Sqr_alone_scanner_T (size_t d, bool store_pairs) {
+
+    struct L2Sqr {
+
+        inline float operator () (size_t /*ilist*/, size_t /*jy*/,
+                const T* x, const T* yj, size_t d) const {
+            return vec_L2Sqr_T (x, yj, d);
+        }
+
+    }
+    *distance = new L2Sqr;
+    return new AloneInvertedListScanner_T<T, CMax<float, int64_t>, L2Sqr> (d,
+            store_pairs, distance);
+}
+
+template <typename T, typename TNorm>
+InvertedListScanner* get_L2Sqr_expand_alone_scanner_T (size_t d,
+        bool store_pairs, const TNorm y_norm) {
+
+    struct L2SqrExpand {
+
+        const TNorm y_norm;
+
+        inline float operator () (size_t ilist, size_t jy,
+                const T* x, const T* yj, size_t d) {
+            return y_norm [ilist] [jy] - 2 * vec_IP_T (x, yj, d);
+        }
+
+    }
+    *distance = new L2SqrExpand {
+        .y_norm = y_norm,
+    };
+    return new AloneInvertedListScanner_T<T, CMax<float, int64_t>,
+            L2SqrExpand> (d, store_pairs, distance);
+}
+
+template <typename T, typename C, typename D>
+class BatchInvertedListScanner_T : public InvertedListScanner_T<T> {
+
+    using idx_t = InvertedListScanner::idx_t;
+    using Scanner = InvertedListScanner_T<T>;
+
+private:
+    D* distance;
+
+public:
+    BatchInvertedListScanner_T (size_t d, bool store_pairs, D* distance):
+            Scanner (d, store_pairs), distance (distance) {
+    }
+
+    virtual ~BatchInvertedListScanner_T () {
+        delete distance;
+    }
+
+    virtual size_t scan_codes (size_t list_size, const uint8_t* codes,
+            const idx_t* ids, float* simi, idx_t* idxi,
+            size_t k) const override {
+        float* distances = new float [list_size];
+        (*distance) (Scanner::converted_x, Scanner::list_no, list_size,
+                (const T*)codes, Scanner::d, distances);
+        size_t nup = 0;
+        for (size_t i = 0; i < list_size; i++) {
+            float dis = distances [i];
+            if (C::cmp (simi[0], dis)) {
+                heap_pop<C> (k, simi, idxi);
+                int64_t id = Scanner::store_pairs ?
+                        lo_build (Scanner::list_no, i) : ids[i];
+                heap_push<C> (k, simi, idxi, dis, id);
+                nup++;
+            }
+        }
+        delete[] distances;
+        return nup;
+    }
+
+};
+
+template <typename T>
+inline InvertedListScanner* get_IP_batch_scanner_T (size_t d, bool store_pairs,
+        T*) {
+    return get_IP_alone_scanner_T<T> (d, store_pairs);
+}
+
+inline InvertedListScanner* get_IP_batch_scanner_T (size_t d, bool store_pairs,
+        float*) {
+
+    struct IP {
+
+        inline void operator () (const float* x, size_t /*ilist*/,
+                size_t list_size, const float* y, size_t d, float* distances)
+                const {
+            cblas_sgemv (CblasRowMajor, CblasNoTrans, list_size, d, 1.0f,
+                    y, d, x, 1, 0.0f, distances, 1);
+        }
+
+    }
+    *distance = new IP;
+    return new BatchInvertedListScanner_T<float, CMin<float, int64_t>, IP> (d,
+            store_pairs, distance);
+}
+
+template <typename T>
+inline InvertedListScanner* get_L2Sqr_batch_scanner_T (size_t d,
+        bool store_pairs, T*) {
+    return get_L2Sqr_alone_scanner_T<T> (d, store_pairs);
+}
+
+template <typename T, typename TNorm>
+inline InvertedListScanner* get_L2Sqr_expand_batch_scanner_T (size_t d,
+        bool store_pairs, const TNorm y_norm, T*) {
+    return get_L2Sqr_expand_alone_scanner_T<T> (d, store_pairs,
+            y_norm);
+}
+
+template <typename TNorm>
+inline InvertedListScanner* get_L2Sqr_expand_batch_scanner_T (size_t d,
+        bool store_pairs, const TNorm y_norm, float*) {
+
+    struct L2SqrExpand {
+
+        const TNorm y_norm;
+
+        inline void operator () (const float* x, size_t ilist,
+                size_t list_size, const float* y, size_t d, float* distances)
+                const {
+            memcpy (distances, &(y_norm [ilist] [0]),
+                    list_size * sizeof(float));
+            cblas_sgemv (CblasRowMajor, CblasNoTrans, list_size, d, -2.0f,
+                    y, d, x, 1, 1.0f, distances, 1);
+        }
+
+    }
+    *distance = new L2SqrExpand {
+        .y_norm = y_norm,
+    };
+    return new BatchInvertedListScanner_T<float, CMax<float, int64_t>,
+            L2SqrExpand> (d, store_pairs, distance);
+}
+
+template <typename T>
+inline InvertedListScanner* get_IP_scanner_T (size_t d, bool store_pairs) {
+    if (!SCANNER_USE_BATCH) {
+        return get_IP_alone_scanner_T<T> (d, store_pairs);
+    }
+    else {
+        return get_IP_batch_scanner_T (d, store_pairs, (T*)nullptr);
+    }
+}
+
+template <typename T>
+inline InvertedListScanner* get_L2Sqr_scanner_T (size_t d, bool store_pairs) {
+    if (!SCANNER_USE_BATCH) {
+        return get_L2Sqr_alone_scanner_T<T> (d, store_pairs);
+    }
+    else {
+        return get_L2Sqr_batch_scanner_T (d, store_pairs, (T*)nullptr);
+    }
+}
+
+template <typename T, typename TNorm>
+inline InvertedListScanner* get_L2Sqr_expand_scanner_T (size_t d,
+        bool store_pairs, const TNorm y_norm) {
+    if (!SCANNER_USE_BATCH) {
+        return get_L2Sqr_expand_alone_scanner_T<T> (d, store_pairs, y_norm);
+    }
+    else {
+        return get_L2Sqr_expand_batch_scanner_T (d, store_pairs, y_norm,
+                (T*)nullptr);
     }
 }
 
