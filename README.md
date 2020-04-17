@@ -42,16 +42,33 @@ You can set *ivfpq_relayout* to any non-negative integer at any time, no matter 
 
 The feature doesn't change the format of index writen to disk, so is compatible with old index files.
 
-## - Flat DType
+## - DType (Diverse Type)
 
-This feature enhances IndexFlat with optional data types (of internal storage). Currently, *FP32* and *BFP16* are supported. This feature makes it possible to get a balance between accuarcy and performance. Take BFP16 for an example, BFP16 can be seen as a short version of traditional single float-point, FP32, skipping the least significant 16 bits of mantissa. Compared with FP16 which is supported by GPU, it provides as large range as FP32 (while FP16 has much smaller range) with the sacrifice of precision. The benifit is that the memory size and bandwidth is half of that of FP32, which offers much lower latency and much higher throughput.
+This is a family of extension, including new metric types, new data types and new implementation types. 
+
+### -- Metirc Type
+
+Two new metric types, *METRIC_L2_EXPAND* and *METRIC_PROJECTION* are added to *MetricType*.
+
+*METRIC_L2_EXPAND* is similar to *METRIC_L2*, but it calculates `y*y - 2*x*y`. It has same effect if you only case the recalling and ranking, but ignore the calculated distances. *METRIC_L2_EXPAND* is better than *METRIC_L2* in that the calculation is more efficient to take advantage of BLAS.
+
+*METRIC_PROJECTION* is to calculate the length of projection of *x* in the direction of *y*. Ff you only case the recalling and ranking, it has same effect as Cosine Distance.
+
+### -- Data Type
+
+This feature also enhances Index with optional data types (of internal storage). Currently, *FP32* and *BFP16* are supported. This feature makes it possible to get a balance between accuarcy and performance. Take BFP16 for an example, BFP16 can be seen as a short version of traditional single float-point, FP32, skipping the least significant 16 bits of mantissa. Compared with FP16 which is supported by GPU, it provides as large range as FP32 (while FP16 has much smaller range) with the sacrifice of precision. The benifit is that the memory size and bandwidth is half of that of FP32, which offers much lower latency and much higher throughput.
 
 ![bfp16](images/bfp16.png)
 
-To enable this feature, you should append `--enable-flat-dtype` to `./configure`, such as:
+### -- Implementation Type
+
+The original Faiss doesn't use BLAS when scanning *InvertedList*. This feature brings a serial of *InvertedListScanner* using BLAS.
+
+
+To enable these features, you should append `--enable-flat-dtype` and `--enable-ivfflat-dtype` to `./configure`, such as:
 
 ```
-./configure --without-cuda --enable-flat-dtype
+./configure --without-cuda --enable-flat-dtype --enable-ivfflat-dtype
 make clean
 make
 ```
@@ -76,26 +93,11 @@ or
 # an original 128-dimension IndexFlat
 Index* index1 = faiss::index_factory (128, "Flat")
 
-# a 128-dimension IndexFlat using FP32 to store vectors
-Index* index2 = faiss::index_factory (128, "FP32,Flat")
+# a 128-dimension IndexFlat of L2_EXPAND using FP32 to store vectors
+Index* index2 = faiss::index_factory (128, "FP32,Flat", faiss::METRIC_L2_EXPAND)
 
 # a 128-dimension IndexFlat using BFP16 to store vectors
 Index* index3 = faiss::index_factory (128, "BFP16,Flat")
-```
-where *index1* is built by original code of IndexFlat, while *index2* and *index3* are built by new code (although *index2* is almost the same as *index1*).
-
-The new IndexFlat with DType is **NOT** compatible with old index files. So you need to train and save a new one.
-
-## - IVFFlat DType
-
-Similar to Flat DType, this feature enhances IndexIVFFlat with optional data types (of internal storage). Currently, *FP32* and *BFP16* are supported.
-
-To enable this feature, you should append `--enable-ivfflat-dtype` to `./configure`, such as:
-
-```
-./configure --without-cuda --enable-ivfflat-dtype
-make clean
-make
 ```
 
 An instance of IndexIVFFlat can be built by such code:
@@ -106,10 +108,10 @@ An instance of IndexIVFFlat can be built by such code:
 index1 = faiss.index_factory (128, "IVF1024,Flat")
 
 # a 128-dimension Index1024,Flat using FP32 to store vectors
-index2 = faiss.index_factory (128, "FP32,Flat")
+index2 = faiss.index_factory (128, "FP32,IVF1024,Flat")
 
 # a 128-dimension Index1024,Flat using BFP16 to store vectors
-index3 = faiss.index_factory (128, "BFP16,Flat")
+index3 = faiss.index_factory (128, "BFP16,IVF1024,Flat")
 ```
 or
 ```
@@ -125,4 +127,7 @@ Index* index2 = faiss::index_factory (128, "FP32,IVF1024,Flat")
 Index* index3 = faiss::index_factory (128, "BFP16,IVF1024,Flat")
 ```
 
-The new IndexFlat with DType is **NOT** compatible with old index files. So you need to train and save a new one.
+When in conjunction with *Flat DType*, it is possible to build a mixed IVFFlat. For example, *"FP32,IVF1024,BFP16,Flat"* builds an IVFFlat where the first layer is a FP32 Flat, while the second layer is BFP16 Flat.
+
+The new IndexFlat and IndexIVFFlat with DType is **NOT** compatible with old index files. So you need to train and save a new one.
+
