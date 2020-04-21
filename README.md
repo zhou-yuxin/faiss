@@ -39,3 +39,5 @@ ps.set_index_parameter (index, "ivfpq_relayout", 4);
 where *ivfpq_relayout* means the group size of relayout. Although *ivfpq_relayout* can be any non-negative integer, but 4 is usually the best based on experience.
 
 You can set *ivfpq_relayout* to any non-negative integer at any time, no matter before or after trainging or adding vectors. The only drawback is that, if you set *ivfpq_relayout* when IndexIVFPQ already has some base vectors, it will take some time to convert the memory layout.
+
+The feature doesn't change the format of index writen to disk, so is compatible with old index files.
