@@ -12,6 +12,10 @@
 
 #include <omp.h>
 
+#ifdef OPT_PARALLEL_HEAP_MERGE
+#include <atomic>
+#endif
+
 #include <cstdio>
 #include <memory>
 
@@ -157,7 +161,7 @@ IndexIVF::IndexIVF (Index * quantizer, size_t d,
     code_size (code_size),
     nprobe (1),
     max_codes (0),
-    parallel_mode (0)
+    parallel_mode (1)
 {
     FAISS_THROW_IF_NOT (d == quantizer->d);
     is_trained = quantizer->is_trained && (quantizer->ntotal == nlist);
@@ -171,7 +175,7 @@ IndexIVF::IndexIVF (Index * quantizer, size_t d,
 IndexIVF::IndexIVF ():
     invlists (nullptr), own_invlists (false),
     code_size (0),
-    nprobe (1), max_codes (0), parallel_mode (0)
+    nprobe (1), max_codes (0), parallel_mode (1)
 {}
 
 void IndexIVF::add (idx_t n, const float * x)
@@ -304,6 +308,15 @@ void IndexIVF::search_preassigned (idx_t n, const float *x, idx_t k,
         pmode == 0 ? n > 1 :
         pmode == 1 ? nprobe > 1 :
         nprobe * n > 1;
+
+#ifdef OPT_PARALLEL_HEAP_MERGE
+    struct Heap {
+        float* distances;
+        idx_t* labels;
+    };
+
+    std::atomic<Heap*> gheap_ptr (nullptr);
+#endif
 
 #pragma omp parallel if(do_parallel) reduction(+: nlistv, ndis, nheap)
     {
@@ -439,6 +452,7 @@ void IndexIVF::search_preassigned (idx_t n, const float *x, idx_t k,
                 }
                 // merge thread-local results
 
+#ifndef OPT_PARALLEL_HEAP_MERGE
                 float * simi = distances + i * k;
                 idx_t * idxi = labels + i * k;
 #pragma omp single
@@ -460,6 +474,47 @@ void IndexIVF::search_preassigned (idx_t n, const float *x, idx_t k,
 #pragma omp barrier
 #pragma omp single
                 reorder_result (simi, idxi);
+#else
+                Heap heap_on_stack = {
+                    .distances = local_dis.data (),
+                    .labels = local_idx.data (),
+                };
+                Heap* lheap = &heap_on_stack;
+                Heap* snap = gheap_ptr.load ();
+                while (true) {
+                    if (snap == nullptr) {
+                        if (gheap_ptr.compare_exchange_weak (snap, lheap)) {
+                            break;
+                        }
+                    }
+                    else {
+                        if (gheap_ptr.compare_exchange_weak (snap, nullptr)) {
+                            if (metric_type == METRIC_INNER_PRODUCT) {
+                                heap_addn<HeapForIP> (k,
+                                        snap->distances, snap->labels,
+                                        lheap->distances, lheap->labels, k);
+                            } else {
+                                heap_addn<HeapForL2> (k,
+                                        snap->distances, snap->labels,
+                                        lheap->distances, lheap->labels, k);
+                            }
+                            lheap = snap;
+                            snap = nullptr;
+                        }
+                    }
+                }
+#pragma omp barrier
+#pragma omp single
+                {
+                    Heap* gheap = gheap_ptr.load ();
+                    reorder_result (gheap->distances, gheap->labels);
+                    float* simi = distances + i * k;
+                    idx_t* idxi = labels + i * k;
+                    memcpy (simi, gheap->distances, k * sizeof (float));
+                    memcpy (idxi, gheap->labels, k * sizeof (idx_t));
+                }
+#pragma omp barrier
+#endif
             }
         } else {
             FAISS_THROW_FMT ("parallel_mode %d not supported\n",
