@@ -167,6 +167,28 @@ struct IVFFlatScanner: InvertedListScanner {
         return nup;
     }
 
+#ifdef OPT_FLAT_L2_SHORTCUT
+    size_t scan_codes_shortcut (size_t list_size,
+            const uint8_t* codes, const idx_t* ids,
+            float* simi, idx_t* idxi, size_t k) override {
+        assert (metric == METRIC_L2);
+        const float* list_vecs = (const float*)codes;
+        size_t nup = 0;
+        for (size_t j = 0; j < list_size; j++) {
+            const float* yj = list_vecs + d * j;
+            float dis = fvec_L2sqr_shortcut (xi, yj, d, shortcut_threshold);
+            if (C::cmp (simi[0], dis)) {
+                heap_pop<C> (k, simi, idxi);
+                int64_t id = store_pairs ? lo_build (list_no, j) : ids[j];
+                heap_push<C> (k, simi, idxi, dis, id);
+                nup++;
+                shortcut_threshold = simi[0];
+            }
+        }
+        return nup;
+    }
+#endif
+
     void scan_codes_range (size_t list_size,
                            const uint8_t *codes,
                            const idx_t *ids,

@@ -30,6 +30,11 @@ float fvec_L2sqr (
         const float * y,
         size_t d);
 
+#ifdef OPT_FLAT_L2_SHORTCUT
+float fvec_L2sqr_shortcut (const float* x, const float* y, size_t d,
+        float threshold);
+#endif
+
 /// inner product
 float  fvec_inner_product (
         const float * x,

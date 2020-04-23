@@ -335,6 +335,16 @@ struct InvertedListScanner {
                                float *distances, idx_t *labels,
                                size_t k) const = 0;
 
+#ifdef OPT_FLAT_L2_SHORTCUT
+    float shortcut_threshold;
+
+    virtual size_t scan_codes_shortcut (size_t /*n*/,
+            const uint8_t* /*codes*/, const idx_t* /*ids*/,
+            float* /*distances*/, idx_t* /*labels*/, size_t /*k*/) {
+        return 0;
+    }
+#endif
+
     /** scan a set of codes, compute distances to current query and
      * update results if distances are below radius
      *

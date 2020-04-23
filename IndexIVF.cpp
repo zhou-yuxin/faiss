@@ -370,6 +370,14 @@ void IndexIVF::search_preassigned (idx_t n, const float *x, idx_t k,
                 ids = sids->get();
             }
 
+#ifdef OPT_FLAT_L2_SHORTCUT
+            if (metric_type == METRIC_L2) {
+                nheap += scanner->scan_codes_shortcut (list_size,
+                        scodes.get(), ids, simi, idxi, k);
+                return list_size;
+            }
+#endif
+
             nheap += scanner->scan_codes (list_size, scodes.get(),
                                           ids, simi, idxi, k);
 
@@ -390,6 +398,9 @@ void IndexIVF::search_preassigned (idx_t n, const float *x, idx_t k,
                 }
 
                 // loop over queries
+#ifdef OPT_FLAT_L2_SHORTCUT
+                scanner->shortcut_threshold = HeapForL2::neutral ();
+#endif
                 scanner->set_query (x + i * d);
                 float * simi = distances + i * k;
                 idx_t * idxi = labels + i * k;

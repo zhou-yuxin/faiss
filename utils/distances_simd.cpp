@@ -22,6 +22,9 @@
 #include <arm_neon.h>
 #endif
 
+#ifdef OPT_FLAT_L2_SHORTCUT
+#include <faiss/impl/FaissAssert.h>
+#endif
 
 namespace faiss {
 
@@ -647,7 +650,33 @@ void fvec_L2sqr_ny (float * dis, const float * x,
 
 #endif
 
+#ifdef OPT_FLAT_L2_SHORTCUT
 
+float fvec_L2sqr_shortcut (const float* x, const float* y, size_t d,
+        float threshold) {
+#ifndef __AVX512F__
+    FAISS_THROW_MSG ("fvec_L2sqr_shortcut() must have avx512f enabled");
+#else
+    __m512 msum = _mm512_setzero_ps ();
+    float sum = 0;
+    while (d >= 16) {
+        __m512 mx = _mm512_loadu_ps (x);
+        __m512 my = _mm512_loadu_ps (y);
+        __m512 mdiff = _mm512_sub_ps (mx, my);
+        msum = _mm512_add_ps (msum, _mm512_mul_ps (mdiff, mdiff));
+        sum = _mm512_reduce_add_ps (msum);
+        if (sum >= threshold) {
+            return sum;
+        }
+        x += 16;
+        y += 16;
+        d -= 16;
+    }
+    return d ? sum + fvec_L2sqr (x, y, d) : sum;
+#endif
+}
+
+#endif
 
 
 
