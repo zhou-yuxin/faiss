@@ -69,7 +69,7 @@ struct IndexFlat_T: Index {
 				1, ntotal, d);
 		    packed_base.resize (pack_size);
 		    cblas_sgemm_pack (CblasRowMajor, CblasBMatrix, CblasTrans,
-				1, ntotal, d, 1.0f, (float*) (base.data ()), d,
+				1, ntotal, d, -2.0f, (float*) (base.data ()), d,
                 (float*) (packed_base.data ()));
         }
         else if (!enable && !packed_base.empty ()) {
@@ -94,8 +94,19 @@ struct IndexFlat_T: Index {
         } else if (metric_type == METRIC_L2_EXPAND) {
             float_maxheap_array_t res = {
                 size_t(n), size_t(k), labels, distances};
+#ifndef OPT_FLAT_MKL_PACK
             knn_L2Sqr_expand_T (converter.x, base.data(), d, n, ntotal,
                     &res, norms.data());
+#else
+            if (packed_base.empty ()) {
+                knn_L2Sqr_expand_T (converter.x, base.data(), d, n, ntotal,
+                        &res, norms.data());
+            }
+            else {
+                knn_L2Sqr_expand_pack (x, (float*) packed_base.data (), d, n,
+                        ntotal, &res, norms.data());
+            }
+#endif
         }
         else {
             FAISS_THROW_FMT("unsupported metric type: %d", (int)metric_type);

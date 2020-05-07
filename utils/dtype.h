@@ -608,6 +608,34 @@ inline void knn_L2Sqr_expand_T (const T* x, const T* y, size_t d,
     }
 }
 
+#ifdef OPT_FLAT_MKL_PACK
+inline void knn_L2Sqr_expand_pack (const float* x, const float* y, size_t d,
+        size_t nx, size_t ny, float_maxheap_array_t* res,
+        const float* y_norm) {
+
+    struct L2SqrExpand {
+
+        const float* y_norm;
+
+        inline void operator () (const float* x, const float* y,
+                size_t d, size_t nx, size_t ny, float* distances) const {
+            float* distances_i = distances;
+            size_t step = ny * sizeof(float);
+            for (size_t i = 0; i < nx; i++) {
+                memcpy (distances_i, y_norm, step);
+                distances_i += ny;
+            }
+		    cblas_sgemm_compute (CblasRowMajor, CblasNoTrans, CblasPacked,
+                    nx, ny, d, x, d, y, 0, 1.0f, distances, ny);
+            }
+    }
+    distance = {
+        .y_norm = y_norm,
+    };
+    knn_batch_T (x, y, d, nx, ny, res, distance);
+}
+#endif
+
 }
 
 #endif
