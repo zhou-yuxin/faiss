@@ -17,6 +17,9 @@ struct IndexFlat_T: Index {
 
     std::vector<T> base;
     std::vector<float> norms;
+#ifdef OPT_FLAT_MKL_PACK
+    std::vector<uint8_t> packed_base;
+#endif
 
     IndexFlat_T() {
     }
@@ -55,6 +58,25 @@ struct IndexFlat_T: Index {
         norms.clear ();
         ntotal = 0;
     }
+
+#ifdef OPT_FLAT_MKL_PACK
+    void pack_base (bool enable) {
+        if (enable && packed_base.empty ()) {
+            if (typeid (T) != typeid (float)) {
+                FAISS_THROW_MSG ("only float type supports MKL PACK");
+            }
+            size_t pack_size = cblas_sgemm_pack_get_size (CblasBMatrix,
+				1, ntotal, d);
+		    packed_base.resize (pack_size);
+		    cblas_sgemm_pack (CblasRowMajor, CblasBMatrix, CblasTrans,
+				1, ntotal, d, 1.0f, (float*) (base.data ()), d,
+                (float*) (packed_base.data ()));
+        }
+        else if (!enable && !packed_base.empty ()) {
+            packed_base.clear ();
+        }
+    }
+#endif
 
     void search (idx_t n, const float* x,
             idx_t k, float* distances, idx_t* labels) const override {

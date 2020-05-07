@@ -1,12 +1,13 @@
 #pragma once
 
-#include <cblas.h>
 #include <stdlib.h>
 #include <immintrin.h>
 
-#include <faiss/IndexIVF.h>
+#include <mkl.h>
 
+#include <faiss/IndexIVF.h>
 #include <faiss/utils/Heap.h>
+#include <faiss/impl/bfp16.h>
 
 #ifdef OPT_DTYPE_UTILS
 

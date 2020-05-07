@@ -36,6 +36,10 @@
 #include <faiss/IndexBinaryHNSW.h>
 #include <faiss/IndexBinaryIVF.h>
 
+#ifdef OPT_FLAT_MKL_PACK
+#include <faiss/IndexFlat_T.h>
+#endif
+
 namespace faiss {
 
 
@@ -563,6 +567,15 @@ void ParameterSpace::set_index_parameter (
     if (name == "ivfpq_relayout") {
         if (DC (IndexIVFPQ)) {
             ix->invlists->ivfpq_relayout (ix->pq.M, size_t(val));
+            return;
+        }
+    }
+#endif
+
+#ifdef OPT_FLAT_MKL_PACK
+    if (name == "mkl_pack") {
+        if (DC (IndexFlat_T<float>)) {
+            ix->pack_base (bool (int (val)));
             return;
         }
     }
