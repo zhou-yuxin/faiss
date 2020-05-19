@@ -314,7 +314,106 @@ void fvec_L2sqr_ny (float * dis, const float * x,
 
 #endif
 
-#ifdef USE_AVX
+#ifdef USE_AVX512
+
+float fvec_inner_product (const float * x,
+                          const float * y,
+                          size_t d) {
+    __m512 msum = _mm512_setzero_ps ();
+    while (d >= 16) {
+        __m512 mx = _mm512_loadu_ps (x);
+        x += 16;
+        __m512 my = _mm512_loadu_ps (y);
+        y += 16;
+        msum = _mm512_add_ps (msum, _mm512_mul_ps (mx, my));
+        d -= 16;
+    }
+
+    __m256 msum2 = _mm512_extractf32x8_ps (msum, 1);
+    msum2 = _mm256_add_ps (msum2, _mm512_extractf32x8_ps (msum, 0));
+    if (d >= 8) {
+        __m256 mx = _mm256_loadu_ps (x);
+        x += 8;
+        __m256 my = _mm256_loadu_ps (y);
+        y += 8;
+        msum2 = _mm256_add_ps (msum2, _mm256_mul_ps (mx, my));
+        d -= 8;
+    }
+
+    __m128 msum3 = _mm256_extractf128_ps (msum2, 1);
+    msum3 = _mm_add_ps (msum3, _mm256_extractf128_ps (msum2, 0));
+
+    if (d >= 4) {
+        __m128 mx = _mm_loadu_ps (x);
+        x += 4;
+        __m128 my = _mm_loadu_ps (y);
+        y += 4;
+        msum3 = _mm_add_ps (msum3, _mm_mul_ps (mx, my));
+        d -= 4;
+    }
+
+    if (d > 0) {
+        __m128 mx = masked_read (d, x);
+        __m128 my = masked_read (d, y);
+        msum3 = _mm_add_ps (msum3, _mm_mul_ps (mx, my));
+    }
+
+    msum3 = _mm_hadd_ps (msum3, msum3);
+    msum3 = _mm_hadd_ps (msum3, msum3);
+    return  _mm_cvtss_f32 (msum3);
+}
+
+float fvec_L2sqr (const float * x,
+                 const float * y,
+                 size_t d) {
+    __m512 msum = _mm512_setzero_ps ();
+    while (d >= 16) {
+        __m512 mx = _mm512_loadu_ps (x);
+        x += 16;
+        __m512 my = _mm512_loadu_ps (y);
+        y += 16;
+        __m512 mdiff = _mm512_sub_ps (mx, my);
+        msum = _mm512_add_ps (msum, _mm512_mul_ps (mdiff, mdiff));
+        d -= 16;
+    }
+
+    __m256 msum2 = _mm512_extractf32x8_ps (msum, 1);
+    msum2 = _mm256_add_ps (msum2, _mm512_extractf32x8_ps (msum, 0));
+    if (d >= 8) {
+        __m256 mx = _mm256_loadu_ps (x);
+        x += 8;
+        __m256 my = _mm256_loadu_ps (y);
+        y += 8;
+        __m256 mdiff = _mm256_sub_ps (mx, my);
+        msum2 = _mm256_add_ps (msum2, _mm256_mul_ps (mdiff, mdiff));
+        d -= 8;
+    }
+
+    __m128 msum3 = _mm256_extractf128_ps(msum2, 1);
+    msum3 = _mm_add_ps (msum3, _mm256_extractf128_ps (msum2, 0));
+    if (d >= 4) {
+        __m128 mx = _mm_loadu_ps (x);
+        x += 4;
+        __m128 my = _mm_loadu_ps (y);
+        y += 4;
+        __m128 mdiff = _mm_sub_ps (mx, my);
+        msum3 = _mm_add_ps (msum3, _mm_mul_ps (mdiff, mdiff));
+        d -= 4;
+    }
+
+    if (d > 0) {
+        __m128 mx = masked_read (d, x);
+        __m128 my = masked_read (d, y);
+        __m128 mdiff = _mm_sub_ps (mx, my);
+        msum3 = _mm_add_ps (msum3, _mm_mul_ps (mdiff, mdiff));
+    }
+
+    msum3 = _mm_hadd_ps (msum3, msum3);
+    msum3 = _mm_hadd_ps (msum3, msum3);
+    return  _mm_cvtss_f32 (msum3);
+}
+
+#elif defined(USE_AVX)
 
 // reads 0 <= d < 8 floats as __m256
 static inline __m256 masked_read_8 (int d, const float *x)

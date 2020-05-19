@@ -720,6 +720,7 @@ with_cuda_arch
 enable_openmp
 with_blas
 with_lapack
+enable_avx512
 '
       ac_precious_vars='build_alias
 host_alias
@@ -6828,6 +6829,15 @@ $as_echo_n "checking for cpu arch... " >&6; }
 $as_echo "$target CPUFLAGS+=\"$ARCH_CPUFLAGS\" CXXFLAGS+=\"$ARCH_CXXFLAGS\"" >&6; }
 
 
+# Check whether --enable_avx512 was given.
+$as_echo_n "checking for AVX512 enhancement... "
+if test "${enable_avx512+set}" = set; then :
+  $as_echo "yes"
+  CPPFLAGS+=" -DUSE_AVX512"
+  ARCH_CPUFLAGS+=" -mavx512f -mavx512dq -mavx512bw -mavx512vl"
+else
+  $as_echo "no"
+fi
 
 
 
