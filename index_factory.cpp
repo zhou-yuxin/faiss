@@ -34,6 +34,9 @@
 #include <faiss/IndexScalarQuantizer.h>
 #include <faiss/IndexHNSW.h>
 #include <faiss/IndexLattice.h>
+#ifdef OPT_DISCRETIZATION
+#include <faiss/IndexIVFFlatDiscrete.h>
+#endif
 
 #include <faiss/IndexBinaryFlat.h>
 #include <faiss/IndexBinaryHNSW.h>
@@ -101,6 +104,30 @@ Index *index_factory (int d, const char *description_in, MetricType metric)
         VectorTransform *vt_1 = nullptr;
         Index *coarse_quantizer_1 = nullptr;
         Index *index_1 = nullptr;
+
+#ifdef OPT_DISCRETIZATION
+        auto try_build_IVFFlatDiscrete = [&] () -> Index* {
+            if (!coarse_quantizer) {
+                return nullptr;
+            }
+            IndexIVFFlatDiscrete* idx;
+            if (strcmp (tok, "FlatDiscrete") == 0) {
+                idx = new IndexIVFFlatDiscrete (coarse_quantizer, d,
+                        ncentroids, metric);
+            }
+            else if (strncmp (tok, "FlatDiscrete/", 13) == 0) {
+                const char* disc_exp = tok + 13;
+                idx = new IndexIVFFlatDiscrete (coarse_quantizer, d,
+                        ncentroids, metric, disc_exp);
+            }
+            else {
+                return nullptr;
+            }
+            idx->own_quantizer = true;
+            del_coarse_quantizer.release ();
+            return idx;
+        };
+#endif
 
         // VectorTransforms
         if (sscanf (tok, "PCA%d", &d_out) == 1) {
@@ -191,6 +218,9 @@ Index *index_factory (int d, const char *description_in, MetricType metric)
                                         "dedup supported only for IVFFlat");
                 index_1 = new IndexFlat (d, metric);
             }
+#ifdef OPT_DISCRETIZATION
+        } else if (!index && (index_1 = try_build_IVFFlatDiscrete ())) {
+#endif
         } else if (!index && (stok == "SQ8" || stok == "SQ4" || stok == "SQ6" ||
                               stok == "SQfp16")) {
             ScalarQuantizer::QuantizerType qt =

@@ -31,6 +31,9 @@
 #include <faiss/MetaIndexes.h>
 #include <faiss/IndexScalarQuantizer.h>
 #include <faiss/IndexHNSW.h>
+#ifdef OPT_DISCRETIZATION
+#include <faiss/IndexIVFFlatDiscrete.h>
+#endif
 
 #include <faiss/IndexBinaryFlat.h>
 #include <faiss/IndexBinaryHNSW.h>
@@ -507,6 +510,11 @@ void ParameterSpace::set_index_parameter (
         if (DC (IndexIDMap)) {
             set_index_parameter (ix->index, name, val);
             return;
+#ifdef OPT_DISCRETIZATION
+        } else if (DC (IndexIVFFlatDiscrete)) {
+            ix->nprobe = size_t (val);
+            return;
+#endif
         } else if (DC (IndexIVF)) {
             ix->nprobe = int(val);
             return;

@@ -36,6 +36,9 @@
 #include <faiss/IndexScalarQuantizer.h>
 #include <faiss/IndexHNSW.h>
 #include <faiss/IndexLattice.h>
+#ifdef OPT_DISCRETIZATION
+#include <faiss/IndexIVFFlatDiscrete.h>
+#endif
 
 #include <faiss/OnDiskInvertedLists.h>
 #include <faiss/IndexBinaryFlat.h>
@@ -391,6 +394,19 @@ void write_index (const Index *idx, IOWriter *f) {
         WRITE1 (h);
         write_ivf_header (ivfl, f);
         write_InvertedLists (ivfl->invlists, f);
+#ifdef OPT_DISCRETIZATION
+    } else if(const IndexIVFFlatDiscrete* ivfld =
+            dynamic_cast<const IndexIVFFlatDiscrete*> (idx)) {
+        uint32_t h = fourcc ("IvFD");
+        WRITE1 (h);
+        write_index_header (ivfld, f);
+        write_index (ivfld->quantizer, f);
+        write_InvertedLists (ivfld->ivlists, f);
+        WRITEVECTOR (ivfld->disc_exp);
+        WRITE1 (ivfld->nprobe);
+        WRITE1 (ivfld->chunk_size);
+        WRITE1 (ivfld->parallel_mode);
+#endif
     } else if(const IndexIVFScalarQuantizer * ivsc =
               dynamic_cast<const IndexIVFScalarQuantizer *> (idx)) {
         uint32_t h = fourcc ("IwSq");

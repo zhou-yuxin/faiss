@@ -36,6 +36,9 @@
 #include <faiss/IndexScalarQuantizer.h>
 #include <faiss/IndexHNSW.h>
 #include <faiss/IndexLattice.h>
+#ifdef OPT_DISCRETIZATION
+#include <faiss/IndexIVFFlatDiscrete.h>
+#endif
 
 #include <faiss/OnDiskInvertedLists.h>
 #include <faiss/IndexBinaryFlat.h>
@@ -561,6 +564,22 @@ Index *read_index (IOReader *f, int io_flags) {
         ivfl->code_size = ivfl->d * sizeof(float);
         read_InvertedLists (ivfl, f, io_flags);
         idx = ivfl;
+#ifdef OPT_DISCRETIZATION
+    } else if (h == fourcc ("IvFD")) {
+        IndexIVFFlatDiscrete* ivfld = new IndexIVFFlatDiscrete;
+        read_index_header (ivfld, f);
+        ivfld->quantizer = read_index (f, io_flags);
+        ivfld->own_quantizer = true;
+        ivfld->ivlists = read_InvertedLists (f, io_flags);
+        std::vector<char> disc_exp;
+        READVECTOR (disc_exp);
+        ivfld->disc_exp.assign (disc_exp.data (), disc_exp.size ());
+        READ1 (ivfld->nprobe);
+        READ1 (ivfld->chunk_size);
+        READ1 (ivfld->parallel_mode);
+        ivfld->rebuild_discrete_space ();
+        idx = ivfld;
+#endif
     } else if (h == fourcc ("IxSQ")) {
         IndexScalarQuantizer * idxs = new IndexScalarQuantizer ();
         read_index_header (idxs, f);
