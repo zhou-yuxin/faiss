@@ -13,6 +13,7 @@
 #include <faiss/impl/FaissAssert.h>
 #include <faiss/IndexIVFFlatDiscrete.h>
 #include <faiss/utils/DiscreteRefiner.h>
+#include <faiss/utils/DiscreteDistances.h>
 
 namespace faiss {
 
@@ -47,9 +48,12 @@ struct IVFFlatDiscreteSpace {
     const size_t nlist;
     const float k;
     const float b;
+    const float dis_scale;
+    const float max_error;
 
     IVFFlatDiscreteSpace (size_t d, size_t nlist, float k, float b) :
-            d (d), nlist (nlist), k (k), b (b) {
+            d (d), nlist (nlist), k (k), b (b), dis_scale (1.0f / k / k),
+            max_error (0.5f * sqrtf (float (d)) * dis_scale) {
     }
 
     virtual ~IVFFlatDiscreteSpace () {
@@ -62,20 +66,14 @@ struct IVFFlatDiscreteSpace {
     virtual void calculate (const float* x, idx_t ilist, size_t n,
             float* distances, ID* ids) const = 0;
 
-    virtual float get_max_error () const = 0;
-
 };
 
 struct Int8Space : IVFFlatDiscreteSpace {
 
-    const float dis_scale;
-    const float max_error;
     std::vector<int8_t>* lists;
 
     Int8Space (size_t d, size_t nlist, float k, float b) :
             IVFFlatDiscreteSpace (d, nlist, k, b),
-            dis_scale (1.0f / k / k),
-            max_error (0.5f * sqrtf (float (d)) * dis_scale),
             lists (new std::vector<int8_t> [nlist]) {
     }
 
@@ -106,60 +104,13 @@ struct Int8Space : IVFFlatDiscreteSpace {
         FAISS_ASSERT (n * d == list->size ());
         const int8_t* y = list->data ();
         for (size_t i = 0; i < n; i++) {
-            distances[i] = get_distance (xt, y + i * d);
+            distances[i] = DiscreteDistances::int8 (d, xt, y + i * d);
             FAISS_ASSERT (distances[i] >= 0.0f);
             ID* id = ids + i;
             id->ilist = ilist;
             id->iy_in_list = i;
         }
         delete[] xt;
-    }
-
-    float get_max_error () const override {
-        return max_error;
-    }
-
-    float get_distance (const float* x, const int8_t* y) const {
-        size_t rd = d;
-#ifdef  __SSE4_2__
-#ifdef __AVX2__
-        __m256 msum8 = _mm256_setzero_ps ();
-        while (rd >= 8) {
-            __m256 mx = _mm256_loadu_ps (x);
-            __m256 my = _mm256_cvtepi32_ps (_mm256_cvtepi8_epi32 (
-                    _mm_loadl_epi64 ((const __m128i*) (y))));
-            __m256 mdiff = _mm256_sub_ps (mx, my);
-            msum8 = _mm256_add_ps (msum8, _mm256_mul_ps (mdiff, mdiff));
-            x += 8;
-            y += 8;
-            rd -= 8;
-        }
-        __m128 msum4 = _mm256_extractf128_ps(msum8, 1);
-        msum4 = _mm_add_ps (msum4, _mm256_extractf128_ps(msum8, 0));
-#else
-        __m128 msum4 = _mm_setzero_ps ();
-#endif
-        if (rd >= 4) {
-            __m128 mx = _mm_loadu_ps (x);
-            __m128 my = _mm_cvtepi32_ps (_mm_cvtepi8_epi32 (
-                    _mm_castps_si128 (_mm_load1_ps ((const float*) (y)))));
-            __m128 mdiff = _mm_sub_ps (mx, my);
-            msum4 = _mm_add_ps (msum4, _mm_mul_ps (mdiff, mdiff));
-            x += 4;
-            y += 4;
-            rd -= 4;
-        }
-        msum4 = _mm_hadd_ps (msum4, msum4);
-        msum4 = _mm_hadd_ps (msum4, msum4);
-        float dis = _mm_cvtss_f32 (msum4);
-#else
-        float dis = 0.0f;
-#endif
-        for (size_t i = 0; i < rd; i++) {
-            float diff = x[i] - float (y[i]);
-            dis += diff * diff;
-        }
-        return dis * dis_scale;
     }
 
 };
@@ -276,8 +227,7 @@ void IndexIVFFlatDiscrete::search (idx_t n, const float* x,
                     disc_distances_j += list_size;
                     ids_j += list_size;
                 }
-                DiscreteRefiner<ID>::refine (d, xi,
-                        disc->get_max_error (),
+                DiscreteRefiner<ID>::refine (d, xi, disc->max_error,
                         total_size, disc_distances, ids, &fetcher,
                         chunk_size >= k ? chunk_size : 4 * k, k,
                         distances + i * k, labels + i * k);
@@ -304,6 +254,9 @@ void IndexIVFFlatDiscrete::parse_disc_exp (size_t nlist) {
     }
     if (strcasecmp (type_exp, "int8") == 0) {
         disc = new Int8Space (d, nlist, k, b);
+    }
+    else if (strcasecmp (type_exp, "uint8") == 0) {
+        disc = new Int8Space (d, nlist, k, b - 128.0f);
     }
     else {
         FAISS_THROW_FMT ("unsupported type: '%s'", type_exp);
