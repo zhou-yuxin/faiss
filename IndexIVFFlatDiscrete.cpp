@@ -47,102 +47,100 @@ struct Fetcher : DiscreteRefiner<ID>::Fetcher {
 
 struct DiscreteLists {
 
-    const size_t d;
-    const size_t nlist;
-
-    DiscreteLists (size_t d, size_t nlist) : d (d), nlist (nlist) {
-    }
-
-    virtual ~DiscreteLists () {
-    }
-
-    virtual bool is_in_range (float min_v, float max_v) const = 0;
-
-    virtual void add (size_t ilist, size_t iy_in_list, const float* y) = 0;
-
-    virtual void reset () = 0;
-
-    virtual size_t calculate (const float* x, size_t ilist, float dis_scale,
-            float* dis_lower_bounds, ID* ids) const = 0;
-
-};
-
-struct Int8Lists : DiscreteLists {
-
     template <typename T>
     struct Format {
         union {
             T value;
-            int8_t int8s[sizeof (T)];
+            uint8_t bytes[sizeof (T)];
         };
     };
 
+    const size_t d;
+    const size_t nlist;
+    const size_t raw_vector_size;
     const size_t vector_size;
-    std::vector<int8_t>* lists;
+    std::vector<uint8_t>* lists;
 
-    Int8Lists (size_t d, size_t nlist) :
-            DiscreteLists (d, nlist),
-            vector_size (d + sizeof (float) + sizeof (label_t)),
-            lists (new std::vector<int8_t> [nlist]) {
+    DiscreteLists (size_t d, size_t nlist, size_t vector_size) :
+            d (d), nlist (nlist), raw_vector_size (vector_size),
+            vector_size (vector_size + sizeof (float) + sizeof (label_t)),
+            lists (new std::vector<uint8_t> [nlist]) {
     }
 
-    ~Int8Lists () {
+    ~DiscreteLists () {
         delete[] lists;
     }
 
-    bool is_in_range (float min_v, float max_v) const override {
-        return -128.0f <= min_v && max_v <= 127.0f;
-    }
-
-    void add (size_t ilist, size_t iy_in_list, const float* y) override {
-        std::vector<int8_t>* list = lists + ilist;
+    void add (size_t ilist, size_t iy_in_list, const float* y) {
+        std::vector<uint8_t>* list = lists + ilist;
         Format<float> error;
-        error.value = 0.0f;
-        for (size_t i = 0; i < d; i++) {
-            float v = y[i];
-            float disc_v = roundf (v);
-            assert (-128.0f <= disc_v && disc_v <= 127.0f);
-            list->emplace_back (disc_v);
-            float diff = v - disc_v;
-            error.value += diff * diff;
-        }
-        error.value = sqrtf (error.value);
+        error.value = sqrtf (add_raw (list, y));
         for (size_t i = 0; i < sizeof (float); i++) {
-            list->emplace_back (error.int8s[i]);
+            list->emplace_back (error.bytes[i]);
         }
         Format<label_t> iy;
         iy.value = iy_in_list;
         for (size_t i = 0; i < sizeof (label_t); i++) {
-            list->emplace_back (iy.int8s[i]);
+            list->emplace_back (iy.bytes[i]);
         }
     }
 
-    void reset () override {
+    void reset () {
         for (size_t i = 0; i < nlist; i++) {
             lists[i].clear ();
         }
     }
 
     size_t calculate (const float* x, size_t ilist, float dis_scale,
-            float* dis_lower_bounds, ID* ids) const override {
-        std::vector<int8_t>* list = lists + ilist;
+            float* dis_lower_bounds, ID* ids) const {
+        std::vector<uint8_t>* list = lists + ilist;
         assert (list->size () % vector_size == 0);
         size_t n = list->size () / vector_size;
-        const int8_t* y = list->data ();
+        const uint8_t* y = list->data ();
         for (size_t i = 0; i < n; i++) {
-            const int8_t* yi = y + i * vector_size;
-            const Format<float>* error = (Format<float>*) (yi + d);
-            const Format<label_t>* iy = (Format<label_t>*) (error + 1);
-            dis_lower_bounds[i] = (get_distance (x, yi) - error->value)
+            const uint8_t* yi = y + i * vector_size;
+            const float* error = (float*) (yi + raw_vector_size);
+            const label_t* iy = (label_t*) (error + 1);
+            dis_lower_bounds[i] = (get_distance (x, yi) - *error)
                     * dis_scale;
             ID* id = ids + i;
             id->ilist = ilist;
-            id->iy_in_list = iy->value;
+            id->iy_in_list = *iy;
         }
         return n;
     }
 
-    float get_distance (const float* x, const int8_t* y) const {
+    virtual bool is_in_range (float min_v, float max_v) const = 0;
+
+    virtual float add_raw (std::vector<uint8_t>* list, const float* y) = 0;
+
+    virtual float get_distance (const float* x, const uint8_t* y) const = 0;
+
+};
+
+struct Int8Lists : DiscreteLists {
+
+    Int8Lists (size_t d, size_t nlist) : DiscreteLists (d, nlist, d) {
+    }
+
+    bool is_in_range (float min_v, float max_v) const override {
+        return -128.0f <= min_v && max_v <= 127.0f;
+    }
+
+    float add_raw (std::vector<uint8_t>* list, const float* y) override {
+        float error = 0.0f;
+        for (size_t i = 0; i < d; i++) {
+            float v = y[i];
+            float disc_v = roundf (v);
+            assert (-128.0f <= disc_v && disc_v <= 127.0f);
+            list->emplace_back (disc_v);
+            float diff = v - disc_v;
+            error += diff * diff;
+        }
+        return error;
+    }
+
+    float get_distance (const float* x, const uint8_t* y) const override {
         size_t rd = d;
 #ifdef  __SSE4_2__
 #ifdef __AVX2__
@@ -205,17 +203,101 @@ struct Int8Lists : DiscreteLists {
 
 };
 
-    // struct BFP16 {
+struct Bfp16Lists : DiscreteLists {
 
-    //     struct Format {
-    //         union {
-    //             float fp32;
-    //             uint16_t uint16s[2];
-    //         };
-    //     };
+    Bfp16Lists (size_t d, size_t nlist) : DiscreteLists (d, nlist, d * 2) {
+    }
 
-    //     uint16_t storage;
-    // };
+    bool is_in_range (float, float) const override {
+        return true;
+    }
+
+    float add_raw (std::vector<uint8_t>* list, const float* y) override {
+        float error = 0.0f;
+        for (size_t i = 0; i < d; i++) {
+            float v = y[i];
+            Format<float> disc;
+            disc.value = v;
+            list->emplace_back (disc.bytes[2]);
+            list->emplace_back (disc.bytes[3]);
+            disc.bytes[0] = 0;
+            disc.bytes[1] = 0;
+            float diff = v - disc.value;
+            error += diff * diff;
+        }
+        return error;
+    }
+
+    float get_distance (const float* x, const uint8_t* y) const override {
+        size_t rd = d;
+#ifdef  __SSE4_2__
+#ifdef __AVX2__
+#if defined(__AVX512F__) && defined(__AVX512DQ__)
+        __m512 msum16 = _mm512_setzero_ps ();
+        while (rd >= 16) {
+            __m512 mx = _mm512_loadu_ps (x);
+            __m512 my = _mm512_castsi512_ps (_mm512_slli_epi32 (
+                    _mm512_cvtepi16_epi32 (_mm256_loadu_si256 (
+                    (const __m256i*) (y))), 16));
+            __m512 mdiff = _mm512_sub_ps (mx, my);
+            msum16 = _mm512_add_ps (msum16, _mm512_mul_ps (mdiff, mdiff));
+            x += 16;
+            y += 32;
+            rd -= 16;
+        }
+        __m256 msum8 = _mm512_extractf32x8_ps (msum16, 1);
+        msum8 = _mm256_add_ps (msum8, _mm512_extractf32x8_ps (msum16, 0));
+        if (rd >= 8) {
+#else
+        __m256 msum8 = _mm256_setzero_ps ();
+        while (rd >= 8) {
+#endif
+            __m256 mx = _mm256_loadu_ps (x);
+            __m256 my = _mm256_castsi256_ps (_mm256_slli_epi32 (
+                    _mm256_cvtepi16_epi32(
+                    _mm_loadu_si128 ((const __m128i*) (y))), 16));
+            __m256 mdiff = _mm256_sub_ps (mx, my);
+            msum8 = _mm256_add_ps (msum8, _mm256_mul_ps (mdiff, mdiff));
+            x += 8;
+            y += 16;
+            rd -= 8;
+        }
+        __m128 msum4 = _mm256_extractf128_ps(msum8, 1);
+        msum4 = _mm_add_ps (msum4, _mm256_extractf128_ps(msum8, 0));
+        if (rd >= 4) {
+#else
+        __m128 msum4 = _mm_setzero_ps ();
+        while (rd >= 4) {
+#endif
+            __m128 mx = _mm_loadu_ps (x);
+            __m128 my = _mm_castsi128_ps (_mm_slli_epi32 (_mm_cvtepi16_epi32(
+                            _mm_loadl_epi64 ((const __m128i*) (y))), 16));
+            __m128 mdiff = _mm_sub_ps (mx, my);
+            msum4 = _mm_add_ps (msum4, _mm_mul_ps (mdiff, mdiff));
+            x += 4;
+            y += 8;
+            rd -= 4;
+        }
+        msum4 = _mm_hadd_ps (msum4, msum4);
+        msum4 = _mm_hadd_ps (msum4, msum4);
+        float sum = _mm_cvtss_f32 (msum4);
+#else
+        float sum = 0.0f;
+#endif
+        Format<float> v;
+        v.bytes[0] = 0;
+        v.bytes[1] = 0;
+        for (size_t i = 0; i < rd; i++) {
+            v.bytes[2] = y[0];
+            v.bytes[3] = y[1];
+            float diff = x[i] - v.value;
+            sum += diff * diff;
+            y += 2;
+        }
+        return sum;
+    }
+
+};
 
 struct IVFFlatDiscreteSpace {
 
@@ -223,23 +305,35 @@ struct IVFFlatDiscreteSpace {
     const float k;
     const float b;
     const float dis_scale;
-    std::vector<DiscreteLists*> lists_array;
+    std::vector<std::unique_ptr<DiscreteLists>> lists_array;
 
-    IVFFlatDiscreteSpace (size_t d, size_t nlist, float k, float b) :
+    IVFFlatDiscreteSpace (size_t d, size_t nlist, float k, float b,
+            const char* type_exp) :
             d (d), k (k), b (b), dis_scale (1.0f / k) {
-        lists_array.emplace_back (new Int8Lists (d, nlist));
-    }
-
-    ~IVFFlatDiscreteSpace () {
-        for (DiscreteLists* lists : lists_array) {
-            delete lists;
+        char* exp_buf = new char [strlen (type_exp) + 1];
+        std::unique_ptr<char[]> exp_buf_del (exp_buf);
+        strcpy (exp_buf, type_exp);
+        char* saved_ptr;
+        for (char* tok = strtok_r (exp_buf, "+", &saved_ptr); tok;
+                tok = strtok_r (nullptr, "+", &saved_ptr)) {
+            DiscreteLists* lists;
+            if (strcasecmp (tok, "int8") == 0) {
+                lists = new Int8Lists (d, nlist);
+            }
+            else if (strcasecmp (tok, "bfp16") == 0) {
+                lists = new Bfp16Lists (d, nlist);
+            }
+            else {
+                FAISS_THROW_FMT ("unsupported type: '%s'", tok);
+            }
+            lists_array.emplace_back (lists);
         }
     }
 
     void add (size_t ilist, size_t iy_in_list, const float* y) {
         float* yt = new float [d];
-        std::unique_ptr<float> yt_del (yt);
-        float min_v = std::numeric_limits<float>::max();
+        std::unique_ptr<float[]> yt_del (yt);
+        float min_v = std::numeric_limits<float>::max ();
         float max_v = -min_v;
         for (size_t i = 0; i < d; i++) {
             float v = k * y[i] + b;
@@ -252,7 +346,7 @@ struct IVFFlatDiscreteSpace {
             }
         }
         assert (min_v <= max_v);
-        for (DiscreteLists* lists : lists_array) {
+        for (std::unique_ptr<DiscreteLists>& lists : lists_array) {
             if (lists->is_in_range (min_v, max_v)) {
                 lists->add (ilist, iy_in_list, yt);
                 return;
@@ -262,7 +356,7 @@ struct IVFFlatDiscreteSpace {
     }
 
     void reset () {
-        for (DiscreteLists* lists : lists_array) {
+        for (std::unique_ptr<DiscreteLists>& lists : lists_array) {
             lists->reset ();
         }
     }
@@ -270,15 +364,15 @@ struct IVFFlatDiscreteSpace {
     size_t calculate (const float* x, size_t ilist,
             float* dis_lower_bounds, ID* ids) const {
         float* xt = new float [d];
+        std::unique_ptr<float[]> xt_del (xt);
         for (size_t i = 0; i < d; i++) {
             xt[i] = k * x[i] + b;
         }
         size_t ncalculate = 0;
-        for (DiscreteLists* lists : lists_array) {
+        for (const std::unique_ptr<DiscreteLists>& lists : lists_array) {
             ncalculate += lists->calculate (xt, ilist, dis_scale,
                     dis_lower_bounds + ncalculate, ids + ncalculate);
         }
-        delete[] xt;
         return ncalculate;
     }
 
@@ -344,6 +438,7 @@ void IndexIVFFlatDiscrete::train (idx_t n, const float* y) {
 void IndexIVFFlatDiscrete::add (idx_t n, const float* y) {
     FAISS_THROW_IF_NOT (is_trained);
     idx_t* ilists = new idx_t [n];
+    std::unique_ptr<idx_t[]> ilists_del (ilists);
     quantizer->assign (n, y, ilists);
     for (idx_t i = 0; i < n; i++) {
         idx_t ilist = ilists[i];
@@ -352,7 +447,6 @@ void IndexIVFFlatDiscrete::add (idx_t n, const float* y) {
                 (uint8_t*) (yi));
         disc->add (ilist, iy_in_list, yi);
     }
-    delete[] ilists;
     ntotal += n;
 }
 
@@ -366,7 +460,7 @@ void IndexIVFFlatDiscrete::search (idx_t n, const float* x,
         idx_t k, float* distances, idx_t* labels) const {
     float* quantizer_distances = new float[n * nprobe];
     idx_t* ilists = new idx_t [n * nprobe];
-    std::unique_ptr<idx_t> ilists_del (ilists);
+    std::unique_ptr<idx_t[]> ilists_del (ilists);
     quantizer->search (n, x, nprobe, quantizer_distances, ilists);
     delete[] quantizer_distances;
     ivlists->prefetch_lists (ilists, n * nprobe);
@@ -383,7 +477,9 @@ void IndexIVFFlatDiscrete::search (idx_t n, const float* x,
                     total_size += ivlists->list_size (ilists_i[j]);
                 }
                 float* dis_lower_bounds = new float [total_size];
+                std::unique_ptr<float[]> dis_del (dis_lower_bounds);
                 ID* ids = new ID [total_size];
+                std::unique_ptr<ID[]> ids_del (ids);
                 float* dis_lower_bounds_j = dis_lower_bounds;
                 ID* ids_j = ids;
                 for (size_t j = 0; j < nprobe; j++) {
@@ -397,8 +493,6 @@ void IndexIVFFlatDiscrete::search (idx_t n, const float* x,
                         dis_lower_bounds, ids, &fetcher,
                         chunk_size >= k ? chunk_size : 4 * k, k,
                         distances + i * k, labels + i * k);
-                delete[] dis_lower_bounds;
-                delete[] ids;
             }
         }
     }
@@ -408,31 +502,18 @@ void IndexIVFFlatDiscrete::search (idx_t n, const float* x,
 }
 
 void IndexIVFFlatDiscrete::parse_disc_exp (const char* exp, size_t nlist) {
-    std::vector<char> type_buf;
-    type_buf.resize (strlen (exp) + 1);
-    char* type_exp = type_buf.data ();
+    char* type_exp = new char [strlen (exp) + 1];
+    std::unique_ptr<char[]> exp_del (type_exp);
     float k, b;
-    if (sscanf (exp, "x%f+%f>>%s", &k, &b, type_exp) != 3) {
+    if (sscanf (exp, "x%f%f>>%s", &k, &b, type_exp) != 3) {
         FAISS_THROW_FMT ("invalid expression: '%s'", exp);
     }
+    IVFFlatDiscreteSpace* space = new IVFFlatDiscreteSpace (d, nlist, k, b,
+            type_exp);
     if (disc) {
         delete disc;
     }
-    if (strcasecmp (type_exp, "int8") == 0) {
-        disc = new IVFFlatDiscreteSpace (d, nlist, k, b);
-    }
-    else if (strcasecmp (type_exp, "uint8") == 0) {
-        disc = new IVFFlatDiscreteSpace (d, nlist, k, b - 128.0f);
-    }
-    // else if (strcasecmp (type_exp, "int4") == 0) {
-    //     disc = new Uint4Space (d, nlist, k, b + 8.0f);
-    // }
-    // else if (strcasecmp (type_exp, "uint4") == 0) {
-    //     disc = new Uint4Space (d, nlist, k, b);
-    // }
-    else {
-        FAISS_THROW_FMT ("unsupported type: '%s'", type_exp);
-    }
+    disc = space;
     disc_exp.assign (exp);
 }
 
