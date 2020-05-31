@@ -17,6 +17,7 @@ struct IndexIVFFlatDiscrete: Index {
     InvertedLists* ivlists;
     std::string disc_exp;
     IVFFlatDiscreteSpace* disc;
+    bool use_residual;
     size_t nprobe;
     size_t chunk_size;
     int parallel_mode;

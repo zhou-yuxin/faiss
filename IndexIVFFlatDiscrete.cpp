@@ -101,7 +101,7 @@ struct DiscreteLists {
             const uint8_t* yi = y + i * vector_size;
             const float* error = (float*) (yi + raw_vector_size);
             const label_t* iy = (label_t*) (error + 1);
-            dis_lower_bounds[i] = (get_distance (x, yi) - *error)
+            dis_lower_bounds[i] = (sqrtf (get_distance (x, yi)) - *error)
                     * dis_scale;
             ID* id = ids + i;
             id->ilist = ilist;
@@ -380,14 +380,15 @@ struct IVFFlatDiscreteSpace {
 
 IndexIVFFlatDiscrete::IndexIVFFlatDiscrete () :
         quantizer (nullptr), own_quantizer (false), ivlists (nullptr),
-        disc (nullptr), nprobe (1), chunk_size (0), parallel_mode (0) {
+        disc (nullptr), use_residual (false), nprobe (1), chunk_size (0),
+        parallel_mode (0) {
 }
 
 IndexIVFFlatDiscrete::IndexIVFFlatDiscrete (Index* quantizer,
         size_t d, size_t nlist, MetricType metric, const char* disc_exp) :
         Index (d, metric), quantizer (quantizer), own_quantizer (false),
-        ivlists (nullptr), disc (nullptr), nprobe (1), chunk_size (0),
-        parallel_mode (0) {
+        ivlists (nullptr), disc (nullptr), use_residual (false), nprobe (1),
+        chunk_size (0), parallel_mode (0) {
     FAISS_THROW_IF_NOT (d == quantizer->d);
     if (metric != METRIC_L2) {
         FAISS_THROW_MSG ("only L2 is supported");
@@ -412,11 +413,19 @@ IndexIVFFlatDiscrete::~IndexIVFFlatDiscrete () {
 void IndexIVFFlatDiscrete::rebuild_discrete_space (const char* exp) {
     size_t nlist = ivlists->nlist;
     parse_disc_exp (exp, nlist);
+    float* residual = new float [d];
+    std::unique_ptr<float[]> residual_del (residual);
     for (size_t i = 0; i < nlist; i++) {
-        size_t list_size = ivlists->list_size (i);
+        size_t n = ivlists->list_size (i);
         const float* y = (const float*) (ivlists->get_codes (i));
-        for (size_t j = 0; j < list_size; j++) {
-            disc->add (i, j, y);
+        for (size_t j = 0; j < n; j++) {
+            if (use_residual) {
+                quantizer->compute_residual (y, residual, i);
+                disc->add (i, j, residual);
+            }
+            else {
+                disc->add (i, j, y);
+            }
             y += d;
         }
     }
@@ -440,12 +449,20 @@ void IndexIVFFlatDiscrete::add (idx_t n, const float* y) {
     idx_t* ilists = new idx_t [n];
     std::unique_ptr<idx_t[]> ilists_del (ilists);
     quantizer->assign (n, y, ilists);
+    float* residual = new float [d];
+    std::unique_ptr<float[]> residual_del (residual);
     for (idx_t i = 0; i < n; i++) {
         idx_t ilist = ilists[i];
         const float* yi = y + i * d;
         size_t iy_in_list = ivlists->add_entry (ilist, ntotal + i,
                 (uint8_t*) (yi));
-        disc->add (ilist, iy_in_list, yi);
+        if (use_residual) {
+            quantizer->compute_residual (y, residual, ilist);
+            disc->add (ilist, iy_in_list, residual);
+        }
+        else {
+            disc->add (ilist, iy_in_list, yi);
+        }
     }
     ntotal += n;
 }
@@ -468,6 +485,8 @@ void IndexIVFFlatDiscrete::search (idx_t n, const float* x,
     if (parallel_mode == 0) {
         #pragma omp parallel if (n > 1)
         {
+            float* residual = new float [d];
+            std::unique_ptr<float[]> residual_del (residual);
             #pragma omp for schedule (dynamic)
             for (idx_t i = 0; i < n; i++) {
                 const float* xi = x + i * d;
@@ -483,9 +502,18 @@ void IndexIVFFlatDiscrete::search (idx_t n, const float* x,
                 float* dis_lower_bounds_j = dis_lower_bounds;
                 ID* ids_j = ids;
                 for (size_t j = 0; j < nprobe; j++) {
-                    size_t ncalculate = disc->calculate (xi, ilists_i[j],
-                            dis_lower_bounds_j, ids_j);
-                    assert (ncalculate == ivlists->list_size (ilists_i[j]));
+                    idx_t ilist = ilists_i[j];
+                    size_t ncalculate;
+                    if (use_residual) {
+                        quantizer->compute_residual (xi, residual, ilist);
+                        ncalculate = disc->calculate (residual, ilist,
+                                dis_lower_bounds_j, ids_j);
+                    }
+                    else {
+                        ncalculate = disc->calculate (xi, ilist,
+                                dis_lower_bounds_j, ids_j);
+                    }
+                    assert (ncalculate == ivlists->list_size (ilist));
                     dis_lower_bounds_j += ncalculate;
                     ids_j += ncalculate;
                 }
@@ -504,8 +532,15 @@ void IndexIVFFlatDiscrete::search (idx_t n, const float* x,
 void IndexIVFFlatDiscrete::parse_disc_exp (const char* exp, size_t nlist) {
     char* type_exp = new char [strlen (exp) + 1];
     std::unique_ptr<char[]> exp_del (type_exp);
+    bool residual;
     float k, b;
-    if (sscanf (exp, "x%f%f>>%s", &k, &b, type_exp) != 3) {
+    if (sscanf (exp, "x%f%f>>%s", &k, &b, type_exp) == 3) {
+        residual = false;
+    }
+    else if (sscanf (exp, "Rx%f%f>>%s", &k, &b, type_exp) == 3) {
+        residual = true;
+    }
+    else {
         FAISS_THROW_FMT ("invalid expression: '%s'", exp);
     }
     IVFFlatDiscreteSpace* space = new IVFFlatDiscreteSpace (d, nlist, k, b,
@@ -515,6 +550,7 @@ void IndexIVFFlatDiscrete::parse_disc_exp (const char* exp, size_t nlist) {
     }
     disc = space;
     disc_exp.assign (exp);
+    use_residual = residual;
 }
 
 }
