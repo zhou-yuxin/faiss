@@ -23,8 +23,8 @@ struct DiscreteRefiner {
 
     };
 
-    static size_t refine (size_t d, const float* x, float max_error,
-            size_t n, float* disc_distances, Tid* ids, Fetcher* fetcher,
+    static size_t refine (size_t d, const float* x, size_t n,
+            float* dis_lower_bounds, Tid* ids, Fetcher* fetcher,
             size_t chunk_size, size_t k, float* distances, idx_t* labels) {
         using C = CMax<float, idx_t>;
         heap_heapify<C> (k, distances, labels);
@@ -41,15 +41,14 @@ struct DiscreteRefiner {
         size_t ncalculate = 0;
         while (n) {
             if (n > chunk_size) {
-                select (disc_distances, ids, 0, n - 1, chunk_size);
+                select (dis_lower_bounds, ids, 0, n - 1, chunk_size);
             }
             else {
                 chunk_size = n;
             }
-            sort (chunk_size, disc_distances, ids);
+            sort (chunk_size, dis_lower_bounds, ids);
             for (size_t i = 0; i < chunk_size; i++) {
-                float disc_distance = sqrtf (disc_distances[i]);
-                if (disc_distance - max_error >= dis_threshold) {
+                if (dis_lower_bounds[i] >= dis_threshold) {
                     heap_reorder<C> (k, distances, labels);
                     return ncalculate;
                 }
@@ -63,7 +62,7 @@ struct DiscreteRefiner {
                     dis_threshold = sqrtf (distances[0]);
                 }
             }
-            disc_distances += chunk_size;
+            dis_lower_bounds += chunk_size;
             ids += chunk_size;
             n -= chunk_size;
         }

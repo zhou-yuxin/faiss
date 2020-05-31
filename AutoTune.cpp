@@ -500,6 +500,23 @@ void ParameterSpace::set_index_parameter (
         set_index_parameter (&ix->refine_index, name, val);
         return;
     }
+#ifdef OPT_DISCRETIZATION
+    if (DC (IndexIVFFlatDiscrete)) {
+        if (name == "nprobe") {
+            ix->nprobe = size_t (val);
+            return;
+        }
+        if (name == "chunk_size") {
+            ix->chunk_size = size_t (val);
+            return;
+        }
+        const char* cname = name.data ();
+        if (strncmp (cname, "disc_exp:", 9) == 0) {
+            ix->rebuild_discrete_space (cname + 9);
+            return;
+        }
+    }
+#endif
 
     if (name == "verbose") {
         index->verbose = int(val);
@@ -510,11 +527,6 @@ void ParameterSpace::set_index_parameter (
         if (DC (IndexIDMap)) {
             set_index_parameter (ix->index, name, val);
             return;
-#ifdef OPT_DISCRETIZATION
-        } else if (DC (IndexIVFFlatDiscrete)) {
-            ix->nprobe = size_t (val);
-            return;
-#endif
         } else if (DC (IndexIVF)) {
             ix->nprobe = int(val);
             return;

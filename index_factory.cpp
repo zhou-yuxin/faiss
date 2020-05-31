@@ -115,7 +115,7 @@ Index *index_factory (int d, const char *description_in, MetricType metric)
                 idx = new IndexIVFFlatDiscrete (coarse_quantizer, d,
                         ncentroids, metric);
             }
-            else if (strncmp (tok, "FlatDiscrete/", 13) == 0) {
+            else if (strncmp (tok, "FlatDiscrete:", 13) == 0) {
                 const char* disc_exp = tok + 13;
                 idx = new IndexIVFFlatDiscrete (coarse_quantizer, d,
                         ncentroids, metric, disc_exp);

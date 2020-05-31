@@ -571,13 +571,13 @@ Index *read_index (IOReader *f, int io_flags) {
         ivfld->quantizer = read_index (f, io_flags);
         ivfld->own_quantizer = true;
         ivfld->ivlists = read_InvertedLists (f, io_flags);
-        std::vector<char> disc_exp;
-        READVECTOR (disc_exp);
-        ivfld->disc_exp.assign (disc_exp.data (), disc_exp.size ());
+        std::vector<char> exp_buf;
+        READVECTOR (exp_buf);
+        std::string disc_exp (exp_buf.data (), exp_buf.size ());
         READ1 (ivfld->nprobe);
         READ1 (ivfld->chunk_size);
         READ1 (ivfld->parallel_mode);
-        ivfld->rebuild_discrete_space ();
+        ivfld->rebuild_discrete_space (disc_exp.data ());
         idx = ivfld;
 #endif
     } else if (h == fourcc ("IxSQ")) {

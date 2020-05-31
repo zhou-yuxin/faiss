@@ -5,7 +5,6 @@
 #include <string>
 
 #include <faiss/Index.h>
-#include <faiss/InvertedLists.h>
 
 namespace faiss {
 
@@ -26,11 +25,11 @@ struct IndexIVFFlatDiscrete: Index {
 
     IndexIVFFlatDiscrete (Index* quantizer, size_t d, size_t nlist,
             MetricType metric = METRIC_L2,
-            const char* disc_exp = "int8:x1+0");
+            const char* disc_exp = "x1+0>>int8");
 
     ~IndexIVFFlatDiscrete ();
 
-    void rebuild_discrete_space ();
+    void rebuild_discrete_space (const char* exp = "x1+0>>int8");
 
     void train (idx_t n, const float* y) override;
 
@@ -42,7 +41,7 @@ struct IndexIVFFlatDiscrete: Index {
             idx_t k, float* distances, idx_t* labels) const override;
 
 private:
-    void parse_disc_exp (size_t nlist);
+    void parse_disc_exp (const char* exp, size_t nlist);
 
 };
 
