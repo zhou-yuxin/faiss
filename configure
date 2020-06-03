@@ -628,6 +628,7 @@ ac_header_list=
 ac_subst_vars='LTLIBOBJS
 ARCH_CXXFLAGS
 ARCH_CPUFLAGS
+OPT_FEATURES
 target_os
 target_vendor
 target_cpu
@@ -718,6 +719,7 @@ with_swig
 with_cuda
 with_cuda_arch
 enable_openmp
+enable_ivfpq_relayout
 with_blas
 with_lapack
 '
@@ -6607,6 +6609,15 @@ fi
 
 
 LIBS="$ax_blas_save_LIBS"
+
+# Check whether --enable_ivfpq_relayout was given.
+$as_echo_n "checking for IVFPQ relayout optimization... "
+if test "${enable_ivfpq_relayout+set}" = set; then :
+  $as_echo "yes"
+  OPT_FEATURES+="-DOPT_IVFPQ_RELAYOUT"
+else
+  $as_echo "no"
+fi
 
 # Finally, execute ACTION-IF-FOUND/ACTION-IF-NOT-FOUND:
 if test x"$ax_blas_ok" = xyes; then

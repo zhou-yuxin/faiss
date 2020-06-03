@@ -198,6 +198,11 @@ void write_InvertedLists (const InvertedLists *ils, IOWriter *f) {
         WRITE1 (h);
     } else if (const auto & ails =
                dynamic_cast<const ArrayInvertedLists *>(ils)) {
+#ifdef OPT_IVFPQ_RELAYOUT
+        size_t group_size = ils->ivfpq_relayout_group_size;
+        InvertedLists* ils_writable = const_cast<InvertedLists*>(ils);
+        ils_writable->ivfpq_relayout (ils->pq_M, 0);
+#endif
         uint32_t h = fourcc ("ilar");
         WRITE1 (h);
         WRITE1 (ails->nlist);
@@ -237,6 +242,9 @@ void write_InvertedLists (const InvertedLists *ils, IOWriter *f) {
                 WRITEANDCHECK (ails->ids[i].data(), n);
             }
         }
+#ifdef OPT_IVFPQ_RELAYOUT
+        ils_writable->ivfpq_relayout (ils->pq_M, group_size);
+#endif
     } else if (const auto & od =
                dynamic_cast<const OnDiskInvertedLists *>(ils)) {
         uint32_t h = fourcc ("ilod");
