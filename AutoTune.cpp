@@ -450,9 +450,22 @@ void ParameterSpace::set_index_parameters (
         char name[100];
         double val;
         int ret = sscanf (tok, "%100[^=]=%lf", name, &val);
+#ifndef OPT_DISCRETIZATION
         FAISS_THROW_IF_NOT_FMT (
            ret == 2, "could not interpret parameters %s", tok);
         set_index_parameter (index, name, val);
+#else
+        if (ret == 2) {
+            set_index_parameter (index, name, val);
+        }
+        else {
+            char valstr[128];
+            ret = sscanf (tok, "%100[^=]=%128s", name, valstr);
+            FAISS_THROW_IF_NOT_FMT (
+                ret == 2, "could not interpret parameters %s", tok);
+            set_index_parameter (index, name, valstr);
+        }
+#endif
     }
 
 }
@@ -508,11 +521,6 @@ void ParameterSpace::set_index_parameter (
         }
         if (name == "chunk_size") {
             ix->chunk_size = size_t (val);
-            return;
-        }
-        const char* cname = name.data ();
-        if (strncmp (cname, "disc_exp:", 9) == 0) {
-            ix->rebuild_discrete_space (cname + 9);
             return;
         }
     }
@@ -583,6 +591,18 @@ void ParameterSpace::set_index_parameter (
                      "could not set parameter %s",
                      name.c_str());
 }
+
+#ifdef OPT_DISCRETIZATION
+void ParameterSpace::set_index_parameter (Index* index,
+        const std::string& name, const char* value) const {
+    if (DC (IndexIVFFlatDiscrete)) {
+        if (name == "disc_exp") {
+            ix->rebuild_discrete_space (value);
+            return;
+        }
+    }
+}
+#endif
 
 void ParameterSpace::display () const
 {

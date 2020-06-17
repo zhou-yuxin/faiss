@@ -183,6 +183,12 @@ struct ParameterSpace {
     virtual void set_index_parameter (
         Index * index, const std::string & name, double val) const;
 
+#ifdef OPT_DISCRETIZATION
+    /// set one of the parameters by string
+    virtual void set_index_parameter (Index* index, const std::string& name,
+            const char* value) const;
+#endif
+
     /** find an upper bound on the performance and a lower bound on t
      * for configuration cno given another operating point op */
     void update_bounds (size_t cno, const OperatingPoint & op,
