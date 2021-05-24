@@ -19,9 +19,6 @@
 #include <faiss/impl/FaissAssert.h>
 #include <faiss/utils/utils.h>
 #include <faiss/utils/random.h>
-#ifdef OPT_DTYPE_UTILS
-#include <faiss/impl/bfp16.h>
-#endif
 
 #include <faiss/IndexFlat.h>
 #include <faiss/VectorTransform.h>
@@ -37,16 +34,14 @@
 #include <faiss/IndexScalarQuantizer.h>
 #include <faiss/IndexHNSW.h>
 #include <faiss/IndexLattice.h>
-#ifdef OPT_FLAT_DTYPE
-#include <faiss/IndexFlat_T.h>
-#endif
-#ifdef OPT_IVFFLAT_DTYPE
-#include <faiss/IndexIVFFlat_T.h>
-#endif
 
 #include <faiss/IndexBinaryFlat.h>
 #include <faiss/IndexBinaryHNSW.h>
 #include <faiss/IndexBinaryIVF.h>
+
+#ifdef OPT_HNSWLIB
+#include <faiss/IndexHNSWlib.h>
+#endif
 
 namespace faiss {
 
@@ -75,43 +70,13 @@ char get_trains_alone(const Index *coarse_quantizer) {
         0;
 }
 
-#ifdef OPT_FLAT_DTYPE
-Index* build_index_flat_T (const char* dtype, size_t d, MetricType metric) {
-    if (!dtype) {
-        return new IndexFlat (d, metric);
-    } else if (strcmp (dtype, "fp32") == 0) {
-        return new IndexFlat_T<float> (d, metric);
-    } else if (strcmp (dtype, "bfp16") == 0) {
-        return new IndexFlat_T<bfp16_t> (d, metric);
-    } else {
-        FAISS_THROW_FMT ("unsupported dtype: '%s'", dtype);
-    }
-}
-#endif
-
-#ifdef OPT_IVFFLAT_DTYPE
-IndexIVF* build_index_ivfflat_T (const char* dtype, Index* quantizer,
-        size_t d, size_t nlist, MetricType metric) {
-    if (!dtype) {
-        return new IndexIVFFlat (quantizer, d, nlist, metric);
-    } else if (strcmp (dtype, "fp32") == 0) {
-        return new IndexIVFFlat_T<float> (quantizer, d, nlist, metric);
-    } else if (strcmp (dtype, "bfp16") == 0) {
-        return new IndexIVFFlat_T<bfp16_t> (quantizer, d, nlist, metric);
-    } else {
-        FAISS_THROW_FMT ("unsupported dtype: '%s'", dtype);
-    }
-}
-#endif
 
 }
 
 Index *index_factory (int d, const char *description_in, MetricType metric)
 {
     FAISS_THROW_IF_NOT(metric == METRIC_L2 ||
-                       metric == METRIC_INNER_PRODUCT ||
-                       metric == METRIC_L2_EXPAND ||
-                       metric == METRIC_PROJECTION);
+                       metric == METRIC_INNER_PRODUCT);
     VTChain vts;
     Index *coarse_quantizer = nullptr;
     Index *index = nullptr;
@@ -126,9 +91,6 @@ Index *index_factory (int d, const char *description_in, MetricType metric)
 
     int64_t ncentroids = -1;
     bool use_2layer = false;
-#ifdef OPT_DTYPE_UTILS
-    const char* dtype = nullptr;
-#endif
 
     for (char *tok = strtok_r (description, " ,", &ptr);
          tok;
@@ -186,15 +148,11 @@ Index *index_factory (int d, const char *description_in, MetricType metric)
 
         } else if (!coarse_quantizer &&
                    sscanf (tok, "IVF%ld", &ncentroids) == 1) {
-#ifndef OPT_FLAT_DTYPE
             if (metric == METRIC_L2) {
                 coarse_quantizer_1 = new IndexFlatL2 (d);
             } else {
                 coarse_quantizer_1 = new IndexFlatIP (d);
             }
-#else
-            coarse_quantizer_1 = build_index_flat_T (dtype, d, metric);
-#endif
         } else if (!coarse_quantizer && sscanf (tok, "IMI2x%d", &nbit) == 1) {
             FAISS_THROW_IF_NOT_MSG (metric == METRIC_L2,
                              "MultiIndex not implemented for inner prod search");
@@ -222,13 +180,8 @@ Index *index_factory (int d, const char *description_in, MetricType metric)
             if (coarse_quantizer) {
                 // if there was an IVF in front, then it is an IVFFlat
                 IndexIVF *index_ivf = stok == "Flat" ?
-#ifndef OPT_IVFFLAT_DTYPE
                     new IndexIVFFlat (
                           coarse_quantizer, d, ncentroids, metric) :
-#else
-                    build_index_ivfflat_T (dtype, coarse_quantizer, d,
-                            ncentroids, metric) :
-#endif
                     new IndexIVFFlatDedup (
                           coarse_quantizer, d, ncentroids, metric);
                 index_ivf->quantizer_trains_alone =
@@ -240,11 +193,7 @@ Index *index_factory (int d, const char *description_in, MetricType metric)
             } else {
                 FAISS_THROW_IF_NOT_MSG (stok != "FlatDedup",
                                         "dedup supported only for IVFFlat");
-#ifndef OPT_FLAT_DTYPE
                 index_1 = new IndexFlat (d, metric);
-#else
-                index_1 = build_index_flat_T (dtype, d, metric);
-#endif
             }
         } else if (!index && (stok == "SQ8" || stok == "SQ4" || stok == "SQ6" ||
                               stok == "SQfp16")) {
@@ -330,6 +279,20 @@ Index *index_factory (int d, const char *description_in, MetricType metric)
         } else if (!index &&
                    sscanf (tok, "HNSW%d", &M) == 1) {
             index_1 = new IndexHNSWFlat (d, M);
+#ifdef OPT_HNSWLIB
+        } else if (!index &&
+                   sscanf (tok, "HNSWlibFp32_%d", &M) == 1) {
+            index_1 = new IndexHNSWlibFp32 (d, M, metric);
+        } else if (!index &&
+                   sscanf (tok, "HNSWlibBfp16_%d", &M) == 1) {
+            index_1 = new IndexHNSWlibBfp16 (d, M, metric);
+        } else if (!index &&
+                   sscanf (tok, "HNSWlibInt16_%d", &M) == 1) {
+            index_1 = new IndexHNSWlibInt16 (d, M, metric);
+        } else if (!index &&
+                   sscanf (tok, "HNSWlibInt8_%d", &M) == 1) {
+            index_1 = new IndexHNSWlibInt8 (d, M, metric);
+#endif
         } else if (!index &&
                    sscanf (tok, "HNSW%d_SQ%d", &M, &pq_m) == 2 &&
                    pq_m == 8) {
@@ -345,14 +308,6 @@ Index *index_factory (int d, const char *description_in, MetricType metric)
             index_1 = new IndexLattice(d, M, nbit, r2);
         } else if (stok == "RFlat") {
             make_IndexRefineFlat = true;
-#ifdef OPT_DTYPE_UTILS
-        } else if (strcasecmp (stok.data(), "fp32") == 0) {
-            dtype = "fp32";
-        } else if (strcasecmp (stok.data(), "bfp16") == 0) {
-            dtype = "bfp16";
-        } else if (strcasecmp (stok.data(), "non-type") == 0) {
-            dtype = nullptr;
-#endif
         } else {
             FAISS_THROW_FMT( "could not parse token \"%s\" in %s\n",
                              tok, description_in);

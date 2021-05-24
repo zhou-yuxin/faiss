@@ -36,6 +36,10 @@
 #include <faiss/IndexBinaryHNSW.h>
 #include <faiss/IndexBinaryIVF.h>
 
+#ifdef OPT_HNSWLIB
+#include <faiss/IndexHNSWlib.h>
+#endif
+
 namespace faiss {
 
 
@@ -550,6 +554,12 @@ void ParameterSpace::set_index_parameter (
             ix->hnsw.efSearch = int(val);
             return;
         }
+#ifdef OPT_HNSWLIB
+        if (DC (IndexHNSWlib)) {
+            ix->setEFSearch (size_t (val));
+            return;
+        }
+#endif
         if (DC (IndexIVF)) {
             if (IndexHNSW *cq =
                 dynamic_cast<IndexHNSW *>(ix->quantizer)) {
@@ -559,10 +569,32 @@ void ParameterSpace::set_index_parameter (
         }
     }
 
-#ifdef OPT_IVFPQ_RELAYOUT
-    if (name == "ivfpq_relayout") {
-        if (DC (IndexIVFPQ)) {
-            ix->invlists->ivfpq_relayout (ix->pq.M, size_t(val));
+#ifdef OPT_HNSWLIB
+    if (name == "efConstruction") {
+        if (DC (IndexHNSW)) {
+            ix->hnsw.efConstruction = int(val);
+            return;
+        }
+        if (DC (IndexHNSWlib)) {
+            ix->setEFConstruction (size_t (val));
+            return;
+        }
+    }
+    if (name == "search_bounded_queue") {
+        if (DC (IndexHNSW)) {
+            ix->hnsw.search_bounded_queue = int(val);
+            return;
+        }
+    }
+    if (name == "scale") {
+        if (DC (IndexHNSWlib)) {
+            ix->scale = float(val);
+            return;
+        }
+    }
+    if (name == "bias") {
+        if (DC (IndexHNSWlib)) {
+            ix->bias = float(val);
             return;
         }
     }

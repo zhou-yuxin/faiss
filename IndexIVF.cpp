@@ -59,6 +59,7 @@ Level1Quantizer::~Level1Quantizer ()
 
 void Level1Quantizer::train_q1 (size_t n, const float *x, bool verbose, MetricType metric_type)
 {
+    double t0 = getmillisecs();
     size_t d = quantizer->d;
     if (quantizer->is_trained && (quantizer->ntotal == nlist)) {
         if (verbose)
@@ -101,6 +102,9 @@ void Level1Quantizer::train_q1 (size_t n, const float *x, bool verbose, MetricTy
         if (verbose)
             printf ("Adding centroids to quantizer\n");
         quantizer->add (nlist, clus.centroids.data());
+    }
+    if (verbose) {
+        printf ("Clustering: %.2f s\n", (getmillisecs() - t0) / 1000);
     }
 }
 

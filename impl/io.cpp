@@ -76,7 +76,11 @@ FileIOReader::FileIOReader(FILE *rf): f(rf) {}
 FileIOReader::FileIOReader(const char * fname)
 {
     name = fname;
+#ifndef OPT_HNSWLIB_DAX
     f = fopen(fname, "rb");
+#else
+    f = fopen(fname, "r+");
+#endif
     FAISS_THROW_IF_NOT_FMT (f, "could not open %s for reading: %s",
                             fname, strerror(errno));
     need_close = true;

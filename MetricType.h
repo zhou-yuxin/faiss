@@ -24,8 +24,6 @@ enum MetricType {
     METRIC_Linf,               ///< infinity distance
     METRIC_Lp,                 ///< L_p distance, p is given by a faiss::Index
                                /// metric_arg
-    METRIC_L2_EXPAND,          ///< y^2 - 2xy
-    METRIC_PROJECTION,         ///< xy / |y|
 
     /// some additional metrics defined in scipy.spatial.distance
     METRIC_Canberra = 20,

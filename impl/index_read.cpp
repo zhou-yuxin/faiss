@@ -20,9 +20,6 @@
 #include <faiss/impl/FaissAssert.h>
 #include <faiss/impl/io.h>
 #include <faiss/utils/hamming.h>
-#ifdef OPT_DTYPE_UTILS
-#include <faiss/impl/bfp16.h>
-#endif
 
 #include <faiss/IndexFlat.h>
 #include <faiss/VectorTransform.h>
@@ -39,12 +36,6 @@
 #include <faiss/IndexScalarQuantizer.h>
 #include <faiss/IndexHNSW.h>
 #include <faiss/IndexLattice.h>
-#ifdef OPT_FLAT_DTYPE
-#include <faiss/IndexFlat_T.h>
-#endif
-#ifdef OPT_IVFFLAT_DTYPE
-#include <faiss/IndexIVFFlat_T.h>
-#endif
 
 #include <faiss/OnDiskInvertedLists.h>
 #include <faiss/IndexBinaryFlat.h>
@@ -53,6 +44,9 @@
 #include <faiss/IndexBinaryIVF.h>
 #include <faiss/IndexBinaryHash.h>
 
+#ifdef OPT_HNSWLIB
+#include <faiss/IndexHNSWlib.h>
+#endif
 
 
 namespace faiss {
@@ -460,62 +454,6 @@ static IndexIVFPQ *read_ivfpq (IOReader *f, uint32_t h, int io_flags)
     return ivpq;
 }
 
-#ifdef OPT_FLAT_DTYPE
-template <typename T, char Cname>
-Index* try_read_index_flat_T (uint32_t h, IOReader* f) {
-    const char* hstr = (const char*) &h;
-    if (strncmp (hstr, "iFl", 3) == 0 && hstr[3] == Cname) {
-        IndexFlat_T<T> *idxf = new IndexFlat_T<T>;
-        read_index_header (idxf, f);
-        READVECTOR (idxf->base);
-        READVECTOR (idxf->norms);
-        FAISS_THROW_IF_NOT (idxf->base.size() == idxf->ntotal * idxf->d);
-        return idxf;
-    }
-    return nullptr;
-}
-
-Index* try_read_index_flat_T (uint32_t h, IOReader* f) {
-    Index* idx;
-    if ((idx = try_read_index_flat_T<float, 'A'> (h, f))) {
-        return idx;
-    } else if ((idx = try_read_index_flat_T<bfp16_t, 'B'> (h, f))) {
-        return idx;
-    }
-    return nullptr;
-}
-#endif
-
-#ifdef OPT_IVFFLAT_DTYPE
-template <typename T, char Cname>
-Index* try_read_index_ivfflat_T (uint32_t h, IOReader* f, int io_flags) {
-    const char* hstr = (const char*) &h;
-    if (strncmp (hstr, "vFl", 3) == 0 && hstr[3] == Cname) {
-        IndexIVFFlat_T<T> * ivfl = new IndexIVFFlat_T<T>;
-        read_ivf_header (ivfl, f);
-        ivfl->code_size = ivfl->d * sizeof(T);
-        read_InvertedLists (ivfl, f, io_flags);
-        ivfl->norms.resize (ivfl->nlist);
-        for (size_t i = 0; i < ivfl->nlist; i++) {
-            READVECTOR (ivfl->norms [i]);
-        }
-        return ivfl;
-    }
-    return nullptr;
-}
-
-Index* try_read_index_ivfflat_T (uint32_t h, IOReader* f, int io_flags) {
-    Index* idx;
-    if ((idx = try_read_index_ivfflat_T<float, 'A'> (h, f, io_flags))) {
-        return idx;
-    } else if ((idx = try_read_index_ivfflat_T<bfp16_t, 'B'>
-            (h, f, io_flags))) {
-        return idx;
-    }
-    return nullptr;
-}
-#endif
-
 int read_old_fmt_hack = 0;
 
 Index *read_index (IOReader *f, int io_flags) {
@@ -536,12 +474,6 @@ Index *read_index (IOReader *f, int io_flags) {
         FAISS_THROW_IF_NOT (idxf->xb.size() == idxf->ntotal * idxf->d);
         // leak!
         idx = idxf;
-#ifdef OPT_FLAT_DTYPE
-    } else if ((idx = try_read_index_flat_T (h, f))) {
-#endif
-#ifdef OPT_IVFFLAT_DTYPE
-    } else if ((idx = try_read_index_ivfflat_T (h, f, io_flags))) {
-#endif
     } else if (h == fourcc("IxHE") || h == fourcc("IxHe")) {
         IndexLSH * idxl = new IndexLSH ();
         read_index_header (idxl, f);
@@ -757,6 +689,28 @@ Index *read_index (IOReader *f, int io_flags) {
             dynamic_cast<IndexPQ*>(idxhnsw->storage)->pq.compute_sdc_table ();
         }
         idx = idxhnsw;
+#ifdef OPT_HNSWLIB
+    } else if(h == fourcc ("HNlF") || h == fourcc ("HNlf") || h == fourcc ("HNlS") || h == fourcc ("HNlB")) {
+        IndexFlat fake;
+        read_index_header (&fake, f);
+        FileIOReader* fw = dynamic_cast<FileIOReader*> (f);
+        FAISS_ASSERT (fw);
+        if (h == fourcc ("HNlF")) {
+            idx = new IndexHNSWlibFp32 (fake.d, fw->f, fake.metric_type);
+        }
+        else if (h == fourcc ("HNlf")) {
+            idx = new IndexHNSWlibBfp16 (fake.d, fw->f, fake.metric_type);
+        }
+        else if (h == fourcc ("HNlS")) {
+            idx = new IndexHNSWlibInt16 (fake.d, fw->f, fake.metric_type);
+        }
+        else if (h == fourcc ("HNlB")) {    
+            idx = new IndexHNSWlibInt8 (fake.d, fw->f, fake.metric_type);
+        }
+        idx->ntotal = fake.ntotal;
+        idx->is_trained = fake.is_trained;
+        idx->verbose = fake.verbose;
+#endif
     } else {
         FAISS_THROW_FMT("Index type 0x%08x not supported\n", h);
         idx = nullptr;

@@ -20,9 +20,6 @@
 #include <faiss/impl/FaissAssert.h>
 #include <faiss/impl/io.h>
 #include <faiss/utils/hamming.h>
-#ifdef OPT_DTYPE_UTILS
-#include <faiss/impl/bfp16.h>
-#endif
 
 #include <faiss/IndexFlat.h>
 #include <faiss/VectorTransform.h>
@@ -39,12 +36,6 @@
 #include <faiss/IndexScalarQuantizer.h>
 #include <faiss/IndexHNSW.h>
 #include <faiss/IndexLattice.h>
-#ifdef OPT_FLAT_DTYPE
-#include <faiss/IndexFlat_T.h>
-#endif
-#ifdef OPT_IVFFLAT_DTYPE
-#include <faiss/IndexIVFFlat_T.h>
-#endif
 
 #include <faiss/OnDiskInvertedLists.h>
 #include <faiss/IndexBinaryFlat.h>
@@ -53,6 +44,9 @@
 #include <faiss/IndexBinaryIVF.h>
 #include <faiss/IndexBinaryHash.h>
 
+#ifdef OPT_HNSWLIB
+#include <faiss/IndexHNSWlib.h>
+#endif
 
 
 /*************************************************************
@@ -209,11 +203,6 @@ void write_InvertedLists (const InvertedLists *ils, IOWriter *f) {
         WRITE1 (h);
     } else if (const auto & ails =
                dynamic_cast<const ArrayInvertedLists *>(ils)) {
-#ifdef OPT_IVFPQ_RELAYOUT
-        size_t group_size = ils->ivfpq_relayout_group_size;
-        InvertedLists* ils_writable = const_cast<InvertedLists*>(ils);
-        ils_writable->ivfpq_relayout (ils->pq_M, 0);
-#endif
         uint32_t h = fourcc ("ilar");
         WRITE1 (h);
         WRITE1 (ails->nlist);
@@ -253,9 +242,6 @@ void write_InvertedLists (const InvertedLists *ils, IOWriter *f) {
                 WRITEANDCHECK (ails->ids[i].data(), n);
             }
         }
-#ifdef OPT_IVFPQ_RELAYOUT
-        ils_writable->ivfpq_relayout (ils->pq_M, group_size);
-#endif
     } else if (const auto & od =
                dynamic_cast<const OnDiskInvertedLists *>(ils)) {
         uint32_t h = fourcc ("ilod");
@@ -327,52 +313,6 @@ static void write_ivf_header (const IndexIVF *ivf, IOWriter *f) {
     write_direct_map (&ivf->direct_map, f);
 }
 
-#ifdef OPT_FLAT_DTYPE
-template <typename T, char Cname>
-bool try_write_index_flat_T (const Index* idx, IOWriter* f) {
-    if (const IndexFlat_T<T>* idxf =
-            dynamic_cast<const IndexFlat_T<T>*> (idx)) {
-        char name[5] = {'i', 'F', 'l', Cname, 0};
-        uint32_t h = fourcc (name);
-        WRITE1 (h);
-        write_index_header (idx, f);
-        WRITEVECTOR (idxf->base);
-        WRITEVECTOR (idxf->norms);
-        return true;
-    }
-    return false;
-}
-
-bool try_write_index_flat_T (const Index* idx, IOWriter* f) {
-    return try_write_index_flat_T<float, 'A'> (idx, f) ||
-        try_write_index_flat_T<bfp16_t, 'B'> (idx, f);
-}
-#endif
-
-#ifdef OPT_IVFFLAT_DTYPE
-template <typename T, char Cname>
-bool try_write_index_ivfflat_T (const Index* idx, IOWriter* f) {
-    if(const IndexIVFFlat_T<T>* ivfl =
-            dynamic_cast<const IndexIVFFlat_T<T>*> (idx)) {
-        char name[5] = {'v', 'F', 'l', Cname, 0};
-        uint32_t h = fourcc (name);
-        WRITE1 (h);
-        write_ivf_header (ivfl, f);
-        write_InvertedLists (ivfl->invlists, f);
-        for (size_t i = 0; i < ivfl->nlist; i++) {
-            WRITEVECTOR (ivfl->norms [i]);
-        }
-        return true;
-    }
-    return false;
-}
-
-bool try_write_index_ivfflat_T (const Index* idx, IOWriter* f) {
-    return try_write_index_ivfflat_T<float, 'A'> (idx, f) ||
-        try_write_index_ivfflat_T<bfp16_t, 'B'> (idx, f);
-}
-#endif
-
 void write_index (const Index *idx, IOWriter *f) {
     if (const IndexFlat * idxf = dynamic_cast<const IndexFlat *> (idx)) {
         uint32_t h = fourcc (
@@ -381,12 +321,6 @@ void write_index (const Index *idx, IOWriter *f) {
         WRITE1 (h);
         write_index_header (idx, f);
         WRITEVECTOR (idxf->xb);
-#ifdef OPT_FLAT_DTYPE
-    } else if (try_write_index_flat_T (idx, f)) {
-#endif
-#ifdef OPT_IVFFLAT_DTYPE
-    } else if (try_write_index_ivfflat_T (idx, f)) {
-#endif
     } else if(const IndexLSH * idxl = dynamic_cast<const IndexLSH *> (idx)) {
         uint32_t h = fourcc ("IxHe");
         WRITE1 (h);
@@ -544,6 +478,32 @@ void write_index (const Index *idx, IOWriter *f) {
         write_index_header (idxhnsw, f);
         write_HNSW (&idxhnsw->hnsw, f);
         write_index (idxhnsw->storage, f);
+#ifdef OPT_HNSWLIB
+    } else if(const IndexHNSWlib* idxhnsw =
+            dynamic_cast<const IndexHNSWlib*> (idx)) {
+        const char* magic;
+        if (dynamic_cast<const IndexHNSWlibFp32*> (idx)) {
+            magic = "HNlF";
+        }
+        else if (dynamic_cast<const IndexHNSWlibBfp16*> (idx)) {
+            magic = "HNlf";
+        }
+        else if (dynamic_cast<const IndexHNSWlibInt16*> (idx)) {
+            magic = "HNlS";
+        }
+        else if (dynamic_cast<const IndexHNSWlibInt8*> (idx)) {
+            magic = "HNlB";
+        }
+        else {
+            FAISS_THROW_MSG ("unknow type of IndexHNSWlib");
+        }
+        uint32_t h = fourcc (magic);
+        WRITE1 (h);
+        write_index_header (idxhnsw, f);
+        FileIOWriter* fw = dynamic_cast<FileIOWriter*> (f);
+        FAISS_ASSERT (fw);
+        idxhnsw->save (fw->f);
+#endif
     } else {
       FAISS_THROW_MSG ("don't know how to serialize this type of index");
     }
